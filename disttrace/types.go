@@ -1,7 +1,7 @@
 package disttrace
 
 import (
-	tr "github.com/aeden/traceroute"
+	tracert "github.com/aeden/traceroute"
 	"time"
 )
 
@@ -9,7 +9,7 @@ import (
 type SlaveConfig struct {
 	ReportURL string
 	Targets   []TraceTarget
-	Options   tr.TracerouteOptions
+	Options   tracert.TracerouteOptions
 }
 
 // TraceTarget contains information about a single dist-traceroute target
@@ -25,5 +25,12 @@ type TraceResult struct {
 	Target   TraceTarget
 	Success  bool
 	HopCount int
-	Hops     []tr.TracerouteHop
+	Hops     []tracert.TracerouteHop
+}
+
+// SubmitResult holds information about success or failure of submission of result(s)
+type SubmitResult struct {
+	Success       bool
+	Error         string
+	RetryPossible bool
 }

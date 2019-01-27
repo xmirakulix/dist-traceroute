@@ -1,13 +1,14 @@
 package main
 
 import (
-	// "bytes"
-	// "encoding/json"
+	"bytes"
+	"encoding/json"
 	"fmt"
 	tracert "github.com/aeden/traceroute"
 	"github.com/google/uuid"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
-	// "net/http"
+	"io/ioutil"
+	"net/http"
 	"time"
 )
 
@@ -72,6 +73,10 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 	workReceived := false
 	cleanupAndExit := false
 	currentResult := disttrace.TraceResult{}
+	httpClient := &http.Client{
+		Timeout: time.Second * 10,
+	}
+	var workErr error
 
 	fmt.Println("handleResults: Start...")
 	for {
@@ -83,13 +88,17 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 		default:
 		}
 
-		// check for work
-		select {
-		case traceRes := <-buf:
-			fmt.Println("handleResults: Received workload: ", traceRes.Target.Name)
-			currentResult = traceRes
-			workReceived = true
-		default:
+		// check for work, if we don't still have workitems
+		if !workReceived {
+			select {
+			case traceRes := <-buf:
+				fmt.Println("handleResults: Received workload: ", traceRes.Target.Name)
+				currentResult = traceRes
+				workReceived = true
+			default:
+			}
+		} else {
+			fmt.Println("handleResults: not checking for new work, not done yet...")
 		}
 
 		// only exit, when all work is done
@@ -104,19 +113,55 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 			fmt.Println("handleResults: Sending: ", currentResult.Target.Name)
 			time.Sleep(3 * time.Second)
 
-			// resultJSON, err := json.Marshal(currentResult)
-			// if err != nil {
-			// 	fmt.Println("handleResults: Error: Couldn't create result json: ", err)
-			// }
+			// prepare data to be sent
+			resultJSON, err := json.Marshal(currentResult)
+			if err != nil {
+				fmt.Println("handleResults: Error: Couldn't create result json: ", err)
+				workErr = err
+				goto endWork
+			}
 
-			// httpResp, err := http.Post(cfg.ReportURL, "application/json", bytes.NewBuffer(resultJSON))
+			// send data to master
+			httpResp, err := httpClient.Post(cfg.ReportURL, "application/json", bytes.NewBuffer(resultJSON))
+			if err != nil {
+				fmt.Println("handleResults: Error sending HTTP Request: ", err)
+				workErr = err
+				goto endWork
+			}
+			defer httpResp.Body.Close()
 
-			// err := json.Unmarshal(httpResp)
+			// read response from master
+			httpRespBody, err := ioutil.ReadAll(httpResp.Body)
+			if err != nil {
+				fmt.Println("handleResults: Can't read response body: ", err)
+				workErr = err
+				goto endWork
+			}
 
+			// parse result
+			txResult := disttrace.SubmitResult{}
+			err = json.Unmarshal(httpRespBody, &txResult)
+			if err != nil {
+				fmt.Println("handleResults: Can't parse reply: ", err)
+				workErr = err
+				goto endWork
+			}
+			if !txResult.Success && txResult.RetryPossible {
+				fmt.Println("handleResults: Master replied unsuccessful but retry possible, Error: ", txResult.Error)
+				goto endWork
+			} else if !txResult.Success && !txResult.RetryPossible {
+				fmt.Println("handleResults: Master replied unsuccessful and shall not retry, Error: ", txResult.Error)
+			}
+
+			// finished handling, prepare for next item
 			currentResult = disttrace.TraceResult{}
 			workReceived = false
 		}
+	endWork:
 
+		if workErr != nil {
+			fmt.Printf("handleResults: An error occurred when handling workitem '%v'. Will retry...\n", currentResult.Target.Name)
+		}
 		// pause between work
 		time.Sleep(1 * time.Second)
 	}
