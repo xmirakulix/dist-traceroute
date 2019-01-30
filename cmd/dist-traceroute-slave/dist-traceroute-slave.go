@@ -17,7 +17,7 @@ var txProcRunning = make(chan bool, 1)
 
 func init() {
 	cfg = disttrace.SlaveConfig{
-		ReportURL: "http://www.google.at",
+		ReportURL: "http://www.parnigoni.net",
 		Targets: []disttrace.TraceTarget{
 			disttrace.TraceTarget{
 				Name:    "WixRou8",
@@ -40,6 +40,25 @@ func runMeasurement(target disttrace.TraceTarget) (result disttrace.TraceResult,
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
 	result.Target = target
+
+	// generate fake measurements during development
+	result.HopCount = 3
+	result.Success = true
+	dur1, _ := time.ParseDuration("100ms")
+	dur2, _ := time.ParseDuration("200ms")
+	dur3, _ := time.ParseDuration("300ms")
+	result.Hops = []tracert.TracerouteHop{
+		tracert.TracerouteHop{
+			Success: true, Address: [4]byte{1, 2, 3, 4}, Host: "host1.at", N: 1, ElapsedTime: dur1, TTL: 1,
+		},
+		tracert.TracerouteHop{
+			Success: true, Address: [4]byte{1, 2, 2, 1}, Host: "host2.at", N: 2, ElapsedTime: dur2, TTL: 2,
+		},
+		tracert.TracerouteHop{
+			Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
+		},
+	}
+	return
 
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.Options.MaxHops() + 1))
@@ -68,7 +87,7 @@ func runMeasurement(target disttrace.TraceTarget) (result disttrace.TraceResult,
 	return
 }
 
-func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
+func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 	txProcRunning <- true
 	workReceived := false
 	cleanupAndExit := false
@@ -77,13 +96,15 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 		Timeout: time.Second * 10,
 	}
 	var workErr error
+	var workErrCount int
+	var numMaxRetries = 3
 
-	fmt.Println("handleResults: Start...")
+	fmt.Println("txResultsToMaster: Start...")
 	for {
 		// check if we need to exit
 		select {
 		case <-doExit:
-			fmt.Println("handleResults: Received exit signal")
+			fmt.Println("txResultsToMaster: Received exit signal")
 			cleanupAndExit = true
 		default:
 		}
@@ -92,31 +113,31 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 		if !workReceived {
 			select {
 			case traceRes := <-buf:
-				fmt.Println("handleResults: Received workload: ", traceRes.Target.Name)
+				fmt.Println("txResultsToMaster: Received workload: ", traceRes.Target.Name)
 				currentResult = traceRes
 				workReceived = true
 			default:
 			}
 		} else {
-			fmt.Println("handleResults: not checking for new work, not done yet...")
+			fmt.Println("txResultsToMaster: not checking for new work, not done yet...")
 		}
 
 		// only exit, when all work is done
 		if cleanupAndExit && !workReceived {
-			fmt.Println("handleResults: Bye.")
+			fmt.Println("txResultsToMaster: No new work to do and was told to exit, bye.")
 			<-txProcRunning
 			return
 		}
 
 		// work, work
 		if workReceived {
-			fmt.Println("handleResults: Sending: ", currentResult.Target.Name)
+			fmt.Println("txResultsToMaster: Sending: ", currentResult.Target.Name)
 			time.Sleep(3 * time.Second)
 
 			// prepare data to be sent
 			resultJSON, err := json.Marshal(currentResult)
 			if err != nil {
-				fmt.Println("handleResults: Error: Couldn't create result json: ", err)
+				fmt.Println("txResultsToMaster: Error: Couldn't create result json: ", err)
 				workErr = err
 				goto endWork
 			}
@@ -124,7 +145,7 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 			// send data to master
 			httpResp, err := httpClient.Post(cfg.ReportURL, "application/json", bytes.NewBuffer(resultJSON))
 			if err != nil {
-				fmt.Println("handleResults: Error sending HTTP Request: ", err)
+				fmt.Println("txResultsToMaster: Error sending HTTP Request: ", err)
 				workErr = err
 				goto endWork
 			}
@@ -133,7 +154,7 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 			// read response from master
 			httpRespBody, err := ioutil.ReadAll(httpResp.Body)
 			if err != nil {
-				fmt.Println("handleResults: Can't read response body: ", err)
+				fmt.Println("txResultsToMaster: Can't read response body: ", err)
 				workErr = err
 				goto endWork
 			}
@@ -142,25 +163,33 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 			txResult := disttrace.SubmitResult{}
 			err = json.Unmarshal(httpRespBody, &txResult)
 			if err != nil {
-				fmt.Println("handleResults: Can't parse reply: ", err)
+				fmt.Printf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
 				workErr = err
 				goto endWork
 			}
 			if !txResult.Success && txResult.RetryPossible {
-				fmt.Println("handleResults: Master replied unsuccessful but retry possible, Error: ", txResult.Error)
+				fmt.Println("txResultsToMaster: Master replied unsuccessful but retry possible, Error: ", txResult.Error)
 				goto endWork
 			} else if !txResult.Success && !txResult.RetryPossible {
-				fmt.Println("handleResults: Master replied unsuccessful and shall not retry, Error: ", txResult.Error)
+				fmt.Println("txResultsToMaster: Master replied unsuccessful and shall not retry, Error: ", txResult.Error)
 			}
 
 			// finished handling, prepare for next item
 			currentResult = disttrace.TraceResult{}
 			workReceived = false
+			workErrCount = 0
 		}
 	endWork:
 
 		if workErr != nil {
-			fmt.Printf("handleResults: An error occurred when handling workitem '%v'. Will retry...\n", currentResult.Target.Name)
+			workErrCount++
+			fmt.Printf("txResultsToMaster: An error occurred when handling workitem '%v'. Will retry, retrycount: %v/%v...\n", currentResult.Target.Name, workErrCount, numMaxRetries)
+		}
+		if workErrCount >= numMaxRetries {
+			fmt.Printf("txResultsToMaster: Too many retries reached for workitem '%v'. Discarding item and continuing...\n", currentResult.Target.Name)
+			currentResult = disttrace.TraceResult{}
+			workReceived = false
+			workErrCount = 0
 		}
 		// pause between work
 		time.Sleep(1 * time.Second)
@@ -169,13 +198,13 @@ func handleResults(buf chan disttrace.TraceResult, doExit chan bool) {
 
 func main() {
 
-	fmt.Println("Starting...")
+	fmt.Println("Main: Starting...")
 
 	resultSendBuffer := make(chan disttrace.TraceResult, 100)
 	doExitSignal := make(chan bool)
 
 	go func() {
-		handleResults(resultSendBuffer, doExitSignal)
+		txResultsToMaster(resultSendBuffer, doExitSignal)
 	}()
 
 	for _, target := range cfg.Targets {
@@ -184,14 +213,14 @@ func main() {
 			fmt.Println("Error: ", err)
 		}
 
-		fmt.Printf("Handing element '%v' to txProc\n", result.Target.Name)
+		fmt.Printf("Main: Handing element '%v' to txProc\n", result.Target.Name)
 		resultSendBuffer <- result
 	}
 	//time.Sleep(5 * time.Second)
-	fmt.Println("Sending exit signal...")
+	fmt.Println("Main: Sending exit signal...")
 	doExitSignal <- true
 
-	fmt.Println("Waiting for txProc to Exit")
+	fmt.Println("Main: Waiting for txProc to Exit")
 	txProcRunning <- true
-	fmt.Println("Bye.")
+	fmt.Println("Main: Bye.")
 }
