@@ -9,11 +9,15 @@ import (
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io/ioutil"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 )
 
 var cfg disttrace.SlaveConfig
 var txProcRunning = make(chan bool, 1)
+var pollerProcRunning = make(chan bool, 1)
 
 func init() {
 	cfg = disttrace.SlaveConfig{
@@ -36,10 +40,13 @@ func init() {
 	cfg.Options.SetTimeoutMs(500)
 }
 
-func runMeasurement(target disttrace.TraceTarget) (result disttrace.TraceResult, err error) {
+func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan disttrace.TraceResult) {
+	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
 	result.Target = target
+
+	fmt.Printf("runMeasurement[%v]: Beginning measurement for target '%v'\n", sequence, target.Name)
 
 	// generate fake measurements during development
 	result.HopCount = 3
@@ -58,6 +65,8 @@ func runMeasurement(target disttrace.TraceTarget) (result disttrace.TraceResult,
 			Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
 		},
 	}
+	txBuffer <- result
+	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", sequence, target.Name)
 	return
 
 	// need to supply chan with sufficient buffer, not used
@@ -84,21 +93,27 @@ func runMeasurement(target disttrace.TraceTarget) (result disttrace.TraceResult,
 	result.Hops = res.Hops
 	result.HopCount = len(res.Hops)
 
+	txBuffer <- result
 	return
 }
 
 func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
+
+	// lock mutex
 	txProcRunning <- true
-	workReceived := false
-	cleanupAndExit := false
-	currentResult := disttrace.TraceResult{}
-	httpClient := &http.Client{
+
+	// init
+	var workReceived = false
+	var cleanupAndExit = false
+	var currentResult = disttrace.TraceResult{}
+	var httpClient = &http.Client{
 		Timeout: time.Second * 10,
 	}
 	var workErr error
 	var workErrCount int
 	var numMaxRetries = 3
 
+	// launch infinite loop
 	fmt.Println("txResultsToMaster: Start...")
 	for {
 		// check if we need to exit
@@ -113,7 +128,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 		if !workReceived {
 			select {
 			case traceRes := <-buf:
-				fmt.Println("txResultsToMaster: Received workload: ", traceRes.Target.Name)
+				fmt.Printf("txResultsToMaster: Received workload: '%v'\n", traceRes.Target.Name)
 				currentResult = traceRes
 				workReceived = true
 			default:
@@ -131,7 +146,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 
 		// work, work
 		if workReceived {
-			fmt.Println("txResultsToMaster: Sending: ", currentResult.Target.Name)
+			fmt.Printf("txResultsToMaster: Sending '%v'\n", currentResult.Target.Name)
 			time.Sleep(3 * time.Second)
 
 			// prepare data to be sent
@@ -178,6 +193,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 			currentResult = disttrace.TraceResult{}
 			workReceived = false
 			workErrCount = 0
+			workErr = *new(error)
 		}
 	endWork:
 
@@ -190,9 +206,40 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 			currentResult = disttrace.TraceResult{}
 			workReceived = false
 			workErrCount = 0
+			workErr = *new(error)
 		}
 		// pause between work
 		time.Sleep(1 * time.Second)
+	}
+}
+
+func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
+
+	// lock mutex
+	pollerProcRunning <- true
+
+	// infinite loop
+	fmt.Println("pollResults: Start...")
+	for {
+		// check if we need to exit
+		select {
+		case <-doExit:
+			fmt.Println("pollResults: Received exit signal, bye.")
+			<-pollerProcRunning
+			return
+		default:
+		}
+
+		// loop through configured targets
+		for i, target := range cfg.Targets {
+			fmt.Printf("pollResults: Running measurement proc [%v] for element '%v'\n", i, target.Name)
+			go runMeasurement(i, target, txBuffer)
+		}
+
+		// pause work until next full minute
+		nextTime := time.Now().Truncate(time.Minute)
+		nextTime = nextTime.Add(time.Minute)
+		time.Sleep(time.Until(nextTime))
 	}
 }
 
@@ -200,27 +247,40 @@ func main() {
 
 	fmt.Println("Main: Starting...")
 
-	resultSendBuffer := make(chan disttrace.TraceResult, 100)
-	doExitSignal := make(chan bool)
+	var txSendBuffer = make(chan disttrace.TraceResult, 100)
+	var txProcDoExitSignal = make(chan bool)
+
+	var pollerProcDoExitSignal = make(chan bool)
+
+	osSignal := make(chan os.Signal, 1)
+	osSigReceived := make(chan bool, 1)
+	signal.Notify(osSignal, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		txResultsToMaster(resultSendBuffer, doExitSignal)
+		sig := <-osSignal
+		fmt.Println("Main: Received os signal: ", sig)
+		osSigReceived <- true
 	}()
 
-	for _, target := range cfg.Targets {
-		result, err := runMeasurement(target)
-		if err != nil {
-			fmt.Println("Error: ", err)
-		}
+	go func() {
+		fmt.Println("Main: Launching transmit process...")
+		txResultsToMaster(txSendBuffer, txProcDoExitSignal)
+	}()
 
-		fmt.Printf("Main: Handing element '%v' to txProc\n", result.Target.Name)
-		resultSendBuffer <- result
-	}
-	//time.Sleep(5 * time.Second)
-	fmt.Println("Main: Sending exit signal...")
-	doExitSignal <- true
+	go func() {
+		fmt.Println("Main: Launching poller process...")
+		pollResults(txSendBuffer, pollerProcDoExitSignal)
+	}()
 
-	fmt.Println("Main: Waiting for txProc to Exit")
+	// wait here until told to quit by os signal
+	fmt.Println("Main: startup finished, going to sleep...")
+	<-osSigReceived
+
+	fmt.Println("Main: Sending exit signal to transmit process...")
+	txProcDoExitSignal <- true
+
+	fmt.Println("Main: Waiting for transmit process to quit...")
 	txProcRunning <- true
+	fmt.Println("Main: Everything has gracefully ended...")
 	fmt.Println("Main: Bye.")
 }
