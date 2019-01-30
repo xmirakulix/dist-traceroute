@@ -40,6 +40,7 @@ func init() {
 	cfg.Options.SetTimeoutMs(500)
 }
 
+// runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
 func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan disttrace.TraceResult) {
 	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
@@ -69,6 +70,8 @@ func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan di
 	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", sequence, target.Name)
 	return
 
+	// TODO error handling needs to be done here
+	// TODO permanently broke targets to be removed from config?
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.Options.MaxHops() + 1))
 
@@ -97,6 +100,7 @@ func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan di
 	return
 }
 
+// txResultsToMaster runs as process. Takes results and transmits them to master server.
 func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 
 	// lock mutex
@@ -213,6 +217,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 	}
 }
 
+// pollResults runs every minute and creates measurement processes for every target
 func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
 
 	// lock mutex
@@ -236,6 +241,7 @@ func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
 			go runMeasurement(i, target, txBuffer)
 		}
 
+		// TODO: exit kann bis zu einer Minute dauern
 		// pause work until next full minute
 		nextTime := time.Now().Truncate(time.Minute)
 		nextTime = nextTime.Add(time.Minute)
@@ -271,6 +277,8 @@ func main() {
 		fmt.Println("Main: Launching poller process...")
 		pollResults(txSendBuffer, pollerProcDoExitSignal)
 	}()
+
+	// TODO: periodically poll config from server?
 
 	// wait here until told to quit by os signal
 	fmt.Println("Main: startup finished, going to sleep...")
