@@ -70,23 +70,23 @@ func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan di
 	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", sequence, target.Name)
 	return
 
-	// TODO error handling needs to be done here
 	// TODO permanently broke targets to be removed from config?
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.Options.MaxHops() + 1))
 
 	res, err := tracert.Traceroute(target.Address, &cfg.Options, c)
 	if err != nil {
-		fmt.Println("Error: ", err)
+		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", sequence, target.Name, err)
+		return
 	}
 
 	if len(res.Hops) == 0 {
-		fmt.Println("Error: no hops")
+		fmt.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", sequence, target.Name)
 		result.Success = false
 
 	} else {
-		fmt.Printf("Target: %v (%v), Hops: %v, Time: %v\n",
-			target.Name, target.Address,
+		fmt.Printf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v\n",
+			sequence, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
 		)
