@@ -223,6 +223,9 @@ func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
 	// lock mutex
 	pollerProcRunning <- true
 
+	// init vars
+	var nextTime time.Time
+
 	// infinite loop
 	fmt.Println("pollResults: Start...")
 	for {
@@ -235,17 +238,25 @@ func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
 		default:
 		}
 
-		// loop through configured targets
-		for i, target := range cfg.Targets {
-			fmt.Printf("pollResults: Running measurement proc [%v] for element '%v'\n", i, target.Name)
-			go runMeasurement(i, target, txBuffer)
+		// is it time to run?
+		if nextTime.Before(time.Now()) {
+
+			// get a copy of current config
+			confTargets := cfg.Targets
+
+			// loop through configured targets
+			for i, target := range confTargets {
+				fmt.Printf("pollResults: Running measurement proc [%v] for element '%v'\n", i, target.Name)
+				go runMeasurement(i, target, txBuffer)
+			}
+
+			// run again on next full minute
+			nextTime = time.Now().Truncate(time.Minute)
+			nextTime = nextTime.Add(time.Minute)
 		}
 
-		// TODO: exit kann bis zu einer Minute dauern
-		// pause work until next full minute
-		nextTime := time.Now().Truncate(time.Minute)
-		nextTime = nextTime.Add(time.Minute)
-		time.Sleep(time.Until(nextTime))
+		// zzz...
+		time.Sleep(1 * time.Second)
 	}
 }
 
@@ -262,21 +273,18 @@ func main() {
 	osSigReceived := make(chan bool, 1)
 	signal.Notify(osSignal, syscall.SIGINT, syscall.SIGTERM)
 
+	// wait for signal in background...
 	go func() {
 		sig := <-osSignal
 		fmt.Println("Main: Received os signal: ", sig)
 		osSigReceived <- true
 	}()
 
-	go func() {
-		fmt.Println("Main: Launching transmit process...")
-		txResultsToMaster(txSendBuffer, txProcDoExitSignal)
-	}()
+	fmt.Println("Main: Launching transmit process...")
+	go txResultsToMaster(txSendBuffer, txProcDoExitSignal)
 
-	go func() {
-		fmt.Println("Main: Launching poller process...")
-		pollResults(txSendBuffer, pollerProcDoExitSignal)
-	}()
+	fmt.Println("Main: Launching poller process...")
+	go pollResults(txSendBuffer, pollerProcDoExitSignal)
 
 	// TODO: periodically poll config from server?
 
