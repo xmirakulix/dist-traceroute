@@ -2,13 +2,14 @@ package disttrace
 
 import (
 	tracert "github.com/aeden/traceroute"
+	"github.com/google/uuid"
 	"time"
 )
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
 	ReportURL string
-	Targets   []TraceTarget
+	Targets   map[uuid.UUID]TraceTarget
 	Options   tracert.TracerouteOptions
 }
 
@@ -20,7 +21,7 @@ type TraceTarget struct {
 
 // TraceResult holds all relevant information of a single traceroute run
 type TraceResult struct {
-	ID       [16]byte
+	ID       uuid.UUID
 	DateTime time.Time
 	Target   TraceTarget
 	Success  bool

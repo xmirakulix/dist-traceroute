@@ -15,39 +15,47 @@ import (
 	"time"
 )
 
-var cfg disttrace.SlaveConfig
 var txProcRunning = make(chan bool, 1)
 var pollerProcRunning = make(chan bool, 1)
 
-func init() {
+func initConfiguration() (cfg disttrace.SlaveConfig) {
+
+	target1 := disttrace.TraceTarget{
+		Name:    "WixRou8",
+		Address: "193.9.252.241",
+	}
+	target2 := disttrace.TraceTarget{
+		Name:    "LNS",
+		Address: "193.9.252.201",
+	}
 	cfg = disttrace.SlaveConfig{
 		ReportURL: "http://www.parnigoni.net",
-		Targets: []disttrace.TraceTarget{
-			disttrace.TraceTarget{
-				Name:    "WixRou8",
-				Address: "193.9.252.241",
-			},
-			disttrace.TraceTarget{
-				Name:    "LNS",
-				Address: "193.9.252.201",
-			},
-		},
-		Options: tracert.TracerouteOptions{},
+		Targets:   make(map[uuid.UUID]disttrace.TraceTarget),
+		Options:   tracert.TracerouteOptions{},
 	}
+	cfg.Targets[uuid.New()] = target1
+	cfg.Targets[uuid.New()] = target2
 
 	cfg.Options.SetRetries(1)
 	cfg.Options.SetMaxHops(30)
 	cfg.Options.SetTimeoutMs(500)
+
+	return
+}
+
+func getCfgTargetByID(id uuid.UUID, cfg disttrace.SlaveConfig) (target *disttrace.TraceTarget) {
+
+	return
 }
 
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
-func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan disttrace.TraceResult) {
+func runMeasurement(id uuid.UUID, target disttrace.TraceTarget, cfg *disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
 	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
 	result.Target = target
 
-	fmt.Printf("runMeasurement[%v]: Beginning measurement for target '%v'\n", sequence, target.Name)
+	fmt.Printf("runMeasurement[%s]: Beginning measurement for target '%v'\n", id, target.Name)
 
 	// generate fake measurements during development
 	result.HopCount = 3
@@ -67,7 +75,7 @@ func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan di
 		},
 	}
 	txBuffer <- result
-	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", sequence, target.Name)
+	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", id, target.Name)
 	return
 
 	// TODO permanently broke targets to be removed from config?
@@ -76,17 +84,17 @@ func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan di
 
 	res, err := tracert.Traceroute(target.Address, &cfg.Options, c)
 	if err != nil {
-		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", sequence, target.Name, err)
+		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", id, target.Name, err)
 		return
 	}
 
 	if len(res.Hops) == 0 {
-		fmt.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", sequence, target.Name)
+		fmt.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", id, target.Name)
 		result.Success = false
 
 	} else {
 		fmt.Printf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v\n",
-			sequence, target.Name, target.Address,
+			id, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
 		)
@@ -101,7 +109,7 @@ func runMeasurement(sequence int, target disttrace.TraceTarget, txBuffer chan di
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
+func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, cfg *disttrace.SlaveConfig) {
 
 	// lock mutex
 	txProcRunning <- true
@@ -217,8 +225,8 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool) {
 	}
 }
 
-// pollResults runs every minute and creates measurement processes for every target
-func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
+// tracePoller runs every minute and creates measurement processes for every target
+func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, cfg *disttrace.SlaveConfig) {
 
 	// lock mutex
 	pollerProcRunning <- true
@@ -227,12 +235,12 @@ func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
 	var nextTime time.Time
 
 	// infinite loop
-	fmt.Println("pollResults: Start...")
+	fmt.Println("tracePoller: Start...")
 	for {
 		// check if we need to exit
 		select {
 		case <-doExit:
-			fmt.Println("pollResults: Received exit signal, bye.")
+			fmt.Println("tracePoller: Received exit signal, bye.")
 			<-pollerProcRunning
 			return
 		default:
@@ -246,8 +254,8 @@ func pollResults(txBuffer chan disttrace.TraceResult, doExit chan bool) {
 
 			// loop through configured targets
 			for i, target := range confTargets {
-				fmt.Printf("pollResults: Running measurement proc [%v] for element '%v'\n", i, target.Name)
-				go runMeasurement(i, target, txBuffer)
+				fmt.Printf("tracePoller: Running measurement proc [%v] for element '%v'\n", i, target.Name)
+				go runMeasurement(i, target, cfg, txBuffer)
 			}
 
 			// run again on next full minute
@@ -280,11 +288,13 @@ func main() {
 		osSigReceived <- true
 	}()
 
+	cfg := initConfiguration()
+
 	fmt.Println("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, txProcDoExitSignal)
+	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, &cfg)
 
 	fmt.Println("Main: Launching poller process...")
-	go pollResults(txSendBuffer, pollerProcDoExitSignal)
+	go tracePoller(txSendBuffer, pollerProcDoExitSignal, &cfg)
 
 	// TODO: periodically poll config from server?
 
