@@ -18,7 +18,8 @@ import (
 var txProcRunning = make(chan bool, 1)
 var pollerProcRunning = make(chan bool, 1)
 
-func initConfiguration() (cfg disttrace.SlaveConfig) {
+// getConfigFromMaster fetches the slave's configuration from the master server
+func getConfigFromMaster() (cfg disttrace.SlaveConfig) {
 
 	target1 := disttrace.TraceTarget{
 		Name:    "WixRou8",
@@ -49,13 +50,14 @@ func getCfgTargetByID(id uuid.UUID, cfg disttrace.SlaveConfig) (target *disttrac
 }
 
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
-func runMeasurement(id uuid.UUID, target disttrace.TraceTarget, cfg *disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
+func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg *disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
 	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
 	result.Target = target
 
-	fmt.Printf("runMeasurement[%s]: Beginning measurement for target '%v'\n", id, target.Name)
+	//TODO targetID not unique over time!
+	fmt.Printf("runMeasurement[%s]: Beginning measurement for target '%v'\n", targetID, target.Name)
 
 	// generate fake measurements during development
 	result.HopCount = 3
@@ -75,26 +77,29 @@ func runMeasurement(id uuid.UUID, target disttrace.TraceTarget, cfg *disttrace.S
 		},
 	}
 	txBuffer <- result
-	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", id, target.Name)
+	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", targetID, target.Name)
 	return
 
-	// TODO permanently broke targets to be removed from config?
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.Options.MaxHops() + 1))
 
 	res, err := tracert.Traceroute(target.Address, &cfg.Options, c)
 	if err != nil {
-		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", id, target.Name, err)
+		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", targetID, target.Name, err)
+
+		// TODO permanently broken targets to be removed from config?
+		// cfg.Targets[targetID].ErrorCount++
+
 		return
 	}
 
 	if len(res.Hops) == 0 {
-		fmt.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", id, target.Name)
+		fmt.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", targetID, target.Name)
 		result.Success = false
 
 	} else {
 		fmt.Printf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v\n",
-			id, target.Name, target.Address,
+			targetID, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
 		)
@@ -288,7 +293,7 @@ func main() {
 		osSigReceived <- true
 	}()
 
-	cfg := initConfiguration()
+	cfg := getConfigFromMaster()
 
 	fmt.Println("Main: Launching transmit process...")
 	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, &cfg)
