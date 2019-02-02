@@ -11,7 +11,7 @@
             "mode": "debug",
             "program": "${fileDirname}",
             "env": {},
-            "args": ["-master-server=https://home.parnigoni.net/dist-traceroute.json",],
+            "args": ["-master-server=https://localhost:8990/config/get",],
             "showLog": true,
         }
     ]

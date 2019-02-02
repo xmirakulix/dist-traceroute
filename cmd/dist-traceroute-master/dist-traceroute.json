@@ -1,0 +1,16 @@
+{
+        "ReportURL": "http://localhost:8990/results/post",
+        "Targets": {
+                "76d96640-d357-47b3-ba50-5248a7604bc9": {
+                        "Name": "LNS2",
+                        "Address": "193.9.252.201"
+                },
+                "fc06ab7c-ad6f-4837-b2f8-96ef95c4acee": {
+                        "Name": "WixRou8",
+                        "Address": "193.9.252.241"
+                }
+        },
+        "Retries": 1,
+        "MaxHops": 30,
+        "TimeoutMs": 500
+}
