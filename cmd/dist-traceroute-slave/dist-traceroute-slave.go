@@ -19,10 +19,14 @@ import (
 )
 
 var txProcRunning = make(chan bool, 1)
-var pollerProcRunning = make(chan bool, 1)
+var tracePollerProcRunning = make(chan bool, 1)
+var configPollerProcRunning = make(chan bool, 1)
 
 // getConfigFromMaster fetches the slave's configuration from the master server
-func getConfigFromMaster(masterURL string) (cfg disttrace.SlaveConfig, err error) {
+func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error {
+
+	newCfg := disttrace.SlaveConfig{}
+	pCfg := *ppCfg
 
 	fmt.Printf("getConfigFromMaster: Attempting to read configuration from '%v'\n", masterURL)
 	var httpClient = &http.Client{
@@ -33,40 +37,97 @@ func getConfigFromMaster(masterURL string) (cfg disttrace.SlaveConfig, err error
 	httpResp, err := httpClient.Get(masterURL)
 	if err != nil {
 		fmt.Println("getConfigFromMaster: Error sending HTTP Request: ", err)
-		return disttrace.SlaveConfig{}, errors.New("Error sending HTTP Request")
+		*pCfg = newCfg
+		return errors.New("Error sending HTTP Request")
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode >= 400 {
 		fmt.Printf("getConfigFromMaster: Error getting configuration, received HTTP status: %v\n", httpResp.Status)
-		return disttrace.SlaveConfig{}, errors.New("Error getting configuration, received HTTP error")
+		*pCfg = newCfg
+		return errors.New("Error getting configuration, received HTTP error")
 	}
 
 	// read response from master
 	httpRespBody, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
 		fmt.Println("getConfigFromMaster: Can't read response body: ", err)
-		return disttrace.SlaveConfig{}, errors.New("Can't read response body")
+		*pCfg = newCfg
+		return errors.New("Can't read response body")
 	}
 
 	// parse result
-	err = json.Unmarshal(httpRespBody, &cfg)
+	err = json.Unmarshal(httpRespBody, &newCfg)
 	if err != nil {
 		fmt.Printf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
-		return disttrace.SlaveConfig{}, errors.New("Can't parse response body")
+		*pCfg = newCfg
+		return errors.New("Can't parse response body")
 	}
 
-	fmt.Printf("getConfigFromMaster: Got config from master, number of configured targets: %v\n", len(cfg.Targets))
-	return cfg, nil
+	fmt.Printf("getConfigFromMaster: Got config from master, number of configured targets: %v\n", len(newCfg.Targets))
+	*pCfg = newCfg
+	return nil
 }
 
-func getCfgTargetByID(id uuid.UUID, cfg disttrace.SlaveConfig) (target *disttrace.TraceTarget) {
+// configPoller checks periodically, if a new configuration is available on master server
+func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveConfig) {
 
-	return
+	// lock mutex
+	configPollerProcRunning <- true
+
+	// init vars
+	var nextTime time.Time
+
+	// infinite loop
+	fmt.Printf("configPoller: Start...\n")
+	for {
+		// check if we need to exit
+		select {
+		case <-doExit:
+			fmt.Println("configPoller: Received exit signal, bye.")
+			<-configPollerProcRunning
+			return
+		default:
+		}
+
+		// is it time to run?
+		if nextTime.Before(time.Now()) {
+			fmt.Println("configPoller: Checking for new configuration on master server...")
+
+			pNewCfg := new(disttrace.SlaveConfig)
+			ppNewCfg := &pNewCfg
+			err := getConfigFromMaster(masterURL, ppNewCfg)
+			if err != nil {
+				fmt.Println("configPoller: Couldn't get current configuration from master server")
+
+			} else {
+				newCfgJSON, _ := json.Marshal(**ppNewCfg)
+				oldCfgJSON, _ := json.Marshal(**ppCfg)
+
+				if string(newCfgJSON) != string(oldCfgJSON) {
+					// config changed
+					fmt.Println("configPoller: Configuration on master changed, applying new configuration and going to sleep...")
+					pCfg := *ppCfg
+					*pCfg = **ppNewCfg
+
+				} else {
+					// no config change
+					fmt.Println("configPoller: Configuration on master didn't change, going to sleep...")
+				}
+			}
+
+			// run again on next full minute
+			nextTime = time.Now().Truncate(time.Minute)
+			nextTime = nextTime.Add(time.Minute)
+		}
+
+		// zzz...
+		time.Sleep(1 * time.Second)
+	}
 }
 
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
-func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg *disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
+func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
 	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
@@ -137,7 +198,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg *distt
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, cfg *disttrace.SlaveConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
 	txProcRunning <- true
@@ -197,6 +258,9 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, cfg *di
 				goto endWork
 			}
 
+			// get current config
+			cfg := **ppCfg
+
 			// send data to master
 			httpResp, err := httpClient.Post(cfg.ReportURL, "application/json", bytes.NewBuffer(resultJSON))
 			if err != nil {
@@ -254,22 +318,22 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, cfg *di
 }
 
 // tracePoller runs every minute and creates measurement processes for every target
-func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, cfg *disttrace.SlaveConfig) {
+func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
-	pollerProcRunning <- true
+	tracePollerProcRunning <- true
 
 	// init vars
 	var nextTime time.Time
 
 	// infinite loop
-	fmt.Println("tracePoller: Start...")
+	fmt.Printf("tracePoller: Start...\n")
 	for {
 		// check if we need to exit
 		select {
 		case <-doExit:
 			fmt.Println("tracePoller: Received exit signal, bye.")
-			<-pollerProcRunning
+			<-tracePollerProcRunning
 			return
 		default:
 		}
@@ -278,17 +342,18 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, cfg *dis
 		if nextTime.Before(time.Now()) {
 
 			// get a copy of current config
-			confTargets := cfg.Targets
+			tempCfg := **ppCfg
+			tempCfgTargets := tempCfg.Targets
 
 			// loop through configured targets
-			for i, target := range confTargets {
+			for i, target := range tempCfgTargets {
 				fmt.Printf("tracePoller: Running measurement proc [%v] for element '%v'\n", i, target.Name)
-				go runMeasurement(i, target, cfg, txBuffer)
+				go runMeasurement(i, target, tempCfg, txBuffer)
 			}
 
 			// run again on next full minute
 			nextTime = time.Now().Truncate(time.Minute)
-			nextTime = nextTime.Add(time.Minute)
+			nextTime = nextTime.Add(time.Minute).Add(10 * time.Second)
 		}
 
 		// zzz...
@@ -321,7 +386,8 @@ func main() {
 	// setup inter-proc communication channels
 	var txSendBuffer = make(chan disttrace.TraceResult, 100)
 	var txProcDoExitSignal = make(chan bool)
-	var pollerProcDoExitSignal = make(chan bool)
+	var tracePollerProcDoExitSignal = make(chan bool)
+	var configPollerProcDoExitSignal = make(chan bool)
 
 	// setup listener for OS exit signals
 	osSignal := make(chan os.Signal, 1)
@@ -352,29 +418,50 @@ func main() {
 	}
 
 	// read configuration from master server
-	cfg, err := getConfigFromMaster(masterURL)
+	pCfg := new(disttrace.SlaveConfig)
+	ppCfg := &pCfg
+	err := getConfigFromMaster(masterURL, ppCfg)
 	if err != nil {
 		fmt.Println("Main: Fatal: Couldn't get configuration from master. Bye.")
 		os.Exit(1)
 	}
 
+	fmt.Println("Main: Launching config poller process...")
+	go configPoller(configPollerProcDoExitSignal, masterURL, ppCfg)
+
+	for {
+		time.Sleep(1 * time.Second)
+		tempCfg := **ppCfg
+		if len(tempCfg.Targets) > 0 {
+			break
+		}
+		fmt.Println("Main: Waiting for valid config...")
+	}
+
 	fmt.Println("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, &cfg)
+	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, ppCfg)
 
-	fmt.Println("Main: Launching poller process...")
-	go tracePoller(txSendBuffer, pollerProcDoExitSignal, &cfg)
-
-	// TODO: periodically poll config from server?
+	fmt.Println("Main: Launching trace poller process...")
+	go tracePoller(txSendBuffer, tracePollerProcDoExitSignal, ppCfg)
 
 	// wait here until told to quit by os signal
 	fmt.Println("Main: startup finished, going to sleep...")
 	<-osSigReceived
 
-	fmt.Println("Main: Sending exit signal to transmit process...")
+	fmt.Println("Main: Sending exit signal to processes...")
 	txProcDoExitSignal <- true
+	tracePollerProcDoExitSignal <- true
+	configPollerProcDoExitSignal <- true
+
+	fmt.Println("Main: Waiting for config poller process to quit...")
+	configPollerProcRunning <- true
+
+	fmt.Println("Main: Waiting for trace poller process to quit...")
+	tracePollerProcRunning <- true
 
 	fmt.Println("Main: Waiting for transmit process to quit...")
 	txProcRunning <- true
+
 	fmt.Println("Main: Everything has gracefully ended...")
 	fmt.Println("Main: Bye.")
 }
