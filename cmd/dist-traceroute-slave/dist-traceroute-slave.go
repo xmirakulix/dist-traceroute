@@ -382,9 +382,10 @@ func printUsage(fSet flag.FlagSet) {
 }
 
 func main() {
-
+	// setup logging
 	log.SetLevel(log.InfoLevel)
 
+	// let's Go! :)
 	log.Warn("Main: Starting...")
 
 	// setup inter-proc communication channels
