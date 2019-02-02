@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"flag"
 	"fmt"
 	tracert "github.com/aeden/traceroute"
 	"github.com/google/uuid"
@@ -32,14 +33,12 @@ func getConfigFromMaster() (cfg disttrace.SlaveConfig) {
 	cfg = disttrace.SlaveConfig{
 		ReportURL: "http://www.parnigoni.net",
 		Targets:   make(map[uuid.UUID]disttrace.TraceTarget),
-		Options:   tracert.TracerouteOptions{},
+		Retries:   1,
+		MaxHops:   30,
+		TimeoutMs: 500,
 	}
 	cfg.Targets[uuid.New()] = target1
 	cfg.Targets[uuid.New()] = target2
-
-	cfg.Options.SetRetries(1)
-	cfg.Options.SetMaxHops(30)
-	cfg.Options.SetTimeoutMs(500)
 
 	return
 }
@@ -81,9 +80,16 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg *distt
 	return
 
 	// need to supply chan with sufficient buffer, not used
-	c := make(chan tracert.TracerouteHop, (cfg.Options.MaxHops() + 1))
+	c := make(chan tracert.TracerouteHop, (cfg.MaxHops + 1))
 
-	res, err := tracert.Traceroute(target.Address, &cfg.Options, c)
+	// create Traceroute options from config
+	opts := tracert.TracerouteOptions{}
+	opts.SetMaxHops(cfg.MaxHops)
+	opts.SetRetries(cfg.Retries)
+	opts.SetTimeoutMs(cfg.TimeoutMs)
+
+	// do measurement
+	res, err := tracert.Traceroute(target.Address, &opts, c)
 	if err != nil {
 		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", targetID, target.Name, err)
 
@@ -277,11 +283,12 @@ func main() {
 
 	fmt.Println("Main: Starting...")
 
+	// setup inter-proc communication channels
 	var txSendBuffer = make(chan disttrace.TraceResult, 100)
 	var txProcDoExitSignal = make(chan bool)
-
 	var pollerProcDoExitSignal = make(chan bool)
 
+	// setup listener for OS exit signals
 	osSignal := make(chan os.Signal, 1)
 	osSigReceived := make(chan bool, 1)
 	signal.Notify(osSignal, syscall.SIGINT, syscall.SIGTERM)
@@ -292,6 +299,27 @@ func main() {
 		fmt.Println("Main: Received os signal: ", sig)
 		osSigReceived <- true
 	}()
+
+	// get cmdline arguments
+	var masterURL string
+	flag.StringVar(&masterURL, "master-server", "", "Set the http(s) `URL` to the configuration file on master server")
+	flag.Parse()
+
+	// print usage instructions and exit
+	if masterURL == "" {
+		fmt.Println("Usage: ")
+		flag.PrintDefaults()
+		fmt.Println()
+
+		def := new(disttrace.SlaveConfig)
+		targets := make(map[uuid.UUID]disttrace.TraceTarget)
+		targets[uuid.New()] = disttrace.TraceTarget{}
+		def.Targets = targets
+		defJSON, _ := json.MarshalIndent(def, "", "  ")
+		fmt.Println("Sample configuration file: ")
+		fmt.Println("", string(defJSON))
+		os.Exit(1)
+	}
 
 	cfg := getConfigFromMaster()
 

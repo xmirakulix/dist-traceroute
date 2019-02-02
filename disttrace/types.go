@@ -10,7 +10,9 @@ import (
 type SlaveConfig struct {
 	ReportURL string
 	Targets   map[uuid.UUID]TraceTarget
-	Options   tracert.TracerouteOptions
+	Retries   int
+	MaxHops   int
+	TimeoutMs int
 }
 
 // TraceTarget contains information about a single dist-traceroute target
