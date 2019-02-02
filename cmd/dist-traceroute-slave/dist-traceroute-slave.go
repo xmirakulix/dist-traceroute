@@ -5,11 +5,11 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"fmt"
 	tracert "github.com/aeden/traceroute"
 	"github.com/google/uuid"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,13 +22,15 @@ var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
 var configPollerProcRunning = make(chan bool, 1)
 
+// TODO split logging in normal and debug
+
 // getConfigFromMaster fetches the slave's configuration from the master server
 func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error {
 
 	newCfg := disttrace.SlaveConfig{}
 	pCfg := *ppCfg
 
-	fmt.Printf("getConfigFromMaster: Attempting to read configuration from '%v'\n", masterURL)
+	log.Printf("getConfigFromMaster: Attempting to read configuration from '%v'\n", masterURL)
 	var httpClient = &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -36,14 +38,14 @@ func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error 
 	// download configuration file from master
 	httpResp, err := httpClient.Get(masterURL)
 	if err != nil {
-		fmt.Println("getConfigFromMaster: Error sending HTTP Request: ", err)
+		log.Println("getConfigFromMaster: Error sending HTTP Request: ", err)
 		*pCfg = newCfg
 		return errors.New("Error sending HTTP Request")
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode >= 400 {
-		fmt.Printf("getConfigFromMaster: Error getting configuration, received HTTP status: %v\n", httpResp.Status)
+		log.Printf("getConfigFromMaster: Error getting configuration, received HTTP status: %v\n", httpResp.Status)
 		*pCfg = newCfg
 		return errors.New("Error getting configuration, received HTTP error")
 	}
@@ -51,7 +53,7 @@ func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error 
 	// read response from master
 	httpRespBody, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
-		fmt.Println("getConfigFromMaster: Can't read response body: ", err)
+		log.Println("getConfigFromMaster: Can't read response body: ", err)
 		*pCfg = newCfg
 		return errors.New("Can't read response body")
 	}
@@ -59,12 +61,12 @@ func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error 
 	// parse result
 	err = json.Unmarshal(httpRespBody, &newCfg)
 	if err != nil {
-		fmt.Printf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
+		log.Printf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
 		*pCfg = newCfg
 		return errors.New("Can't parse response body")
 	}
 
-	fmt.Printf("getConfigFromMaster: Got config from master, number of configured targets: %v\n", len(newCfg.Targets))
+	log.Printf("getConfigFromMaster: Got config from master, number of configured targets: %v\n", len(newCfg.Targets))
 	*pCfg = newCfg
 	return nil
 }
@@ -79,12 +81,12 @@ func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveCon
 	var nextTime time.Time
 
 	// infinite loop
-	fmt.Printf("configPoller: Start...\n")
+	log.Printf("configPoller: Start...\n")
 	for {
 		// check if we need to exit
 		select {
 		case <-doExit:
-			fmt.Println("configPoller: Received exit signal, bye.")
+			log.Println("configPoller: Received exit signal, bye.")
 			<-configPollerProcRunning
 			return
 		default:
@@ -92,13 +94,13 @@ func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveCon
 
 		// is it time to run?
 		if nextTime.Before(time.Now()) {
-			fmt.Println("configPoller: Checking for new configuration on master server...")
+			log.Println("configPoller: Checking for new configuration on master server...")
 
 			pNewCfg := new(disttrace.SlaveConfig)
 			ppNewCfg := &pNewCfg
 			err := getConfigFromMaster(masterURL, ppNewCfg)
 			if err != nil {
-				fmt.Println("configPoller: Couldn't get current configuration from master server")
+				log.Println("configPoller: Couldn't get current configuration from master server")
 
 			} else {
 				newCfgJSON, _ := json.Marshal(**ppNewCfg)
@@ -106,13 +108,13 @@ func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveCon
 
 				if string(newCfgJSON) != string(oldCfgJSON) {
 					// config changed
-					fmt.Println("configPoller: Configuration on master changed, applying new configuration and going to sleep...")
+					log.Println("configPoller: Configuration on master changed, applying new configuration and going to sleep...")
 					pCfg := *ppCfg
 					*pCfg = **ppNewCfg
 
 				} else {
 					// no config change
-					fmt.Println("configPoller: Configuration on master didn't change, going to sleep...")
+					log.Println("configPoller: Configuration on master didn't change, going to sleep...")
 				}
 			}
 
@@ -133,29 +135,29 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	result.DateTime = time.Now()
 	result.Target = target
 
-	//TODO targetID not unique over time!
-	fmt.Printf("runMeasurement[%s]: Beginning measurement for target '%v'\n", targetID, target.Name)
+	//TODO targetID not unique over time, concurrent runs will have same id -> bad as log reference
+	log.Printf("runMeasurement[%s]: Beginning measurement for target '%v'\n", targetID, target.Name)
 
-	// generate fake measurements during development
-	result.HopCount = 3
-	result.Success = true
-	dur1, _ := time.ParseDuration("100ms")
-	dur2, _ := time.ParseDuration("200ms")
-	dur3, _ := time.ParseDuration("300ms")
-	result.Hops = []tracert.TracerouteHop{
-		tracert.TracerouteHop{
-			Success: true, Address: [4]byte{1, 2, 3, 4}, Host: "host1.at", N: 1, ElapsedTime: dur1, TTL: 1,
-		},
-		tracert.TracerouteHop{
-			Success: true, Address: [4]byte{1, 2, 2, 1}, Host: "host2.at", N: 2, ElapsedTime: dur2, TTL: 2,
-		},
-		tracert.TracerouteHop{
-			Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
-		},
-	}
-	txBuffer <- result
-	fmt.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", targetID, target.Name)
-	return
+	// // generate fake measurements during development
+	// result.HopCount = 3
+	// result.Success = true
+	// dur1, _ := time.ParseDuration("100ms")
+	// dur2, _ := time.ParseDuration("200ms")
+	// dur3, _ := time.ParseDuration("300ms")
+	// result.Hops = []tracert.TracerouteHop{
+	// 	tracert.TracerouteHop{
+	// 		Success: true, Address: [4]byte{1, 2, 3, 4}, Host: "host1.at", N: 1, ElapsedTime: dur1, TTL: 1,
+	// 	},
+	// 	tracert.TracerouteHop{
+	// 		Success: true, Address: [4]byte{1, 2, 2, 1}, Host: "host2.at", N: 2, ElapsedTime: dur2, TTL: 2,
+	// 	},
+	// 	tracert.TracerouteHop{
+	// 		Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
+	// 	},
+	// }
+	// txBuffer <- result
+	// log.Printf("runMeasurement[%v]: Finished measurement for target '%v'\n", targetID, target.Name)
+	// return
 
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.MaxHops + 1))
@@ -169,20 +171,17 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	// do measurement
 	res, err := tracert.Traceroute(target.Address, &opts, c)
 	if err != nil {
-		fmt.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", targetID, target.Name, err)
-
+		log.Printf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", targetID, target.Name, err)
 		// TODO permanently broken targets to be removed from config?
-		// cfg.Targets[targetID].ErrorCount++
-
 		return
 	}
 
 	if len(res.Hops) == 0 {
-		fmt.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", targetID, target.Name)
+		log.Printf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", targetID, target.Name)
 		result.Success = false
 
 	} else {
-		fmt.Printf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v\n",
+		log.Printf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v\n",
 			targetID, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
@@ -215,12 +214,12 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 	var numMaxRetries = 3
 
 	// launch infinite loop
-	fmt.Println("txResultsToMaster: Start...")
+	log.Println("txResultsToMaster: Start...")
 	for {
 		// check if we need to exit
 		select {
 		case <-doExit:
-			fmt.Println("txResultsToMaster: Received exit signal")
+			log.Println("txResultsToMaster: Received exit signal")
 			cleanupAndExit = true
 		default:
 		}
@@ -229,31 +228,31 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 		if !workReceived {
 			select {
 			case traceRes := <-buf:
-				fmt.Printf("txResultsToMaster: Received workload: '%v'\n", traceRes.Target.Name)
+				log.Printf("txResultsToMaster: Received workload: '%v'\n", traceRes.Target.Name)
 				currentResult = traceRes
 				workReceived = true
 			default:
 			}
 		} else {
-			fmt.Println("txResultsToMaster: not checking for new work, not done yet...")
+			log.Println("txResultsToMaster: not checking for new work, not done yet...")
 		}
 
 		// only exit, when all work is done
 		if cleanupAndExit && !workReceived {
-			fmt.Println("txResultsToMaster: No new work to do and was told to exit, bye.")
+			log.Println("txResultsToMaster: No new work to do and was told to exit, bye.")
 			<-txProcRunning
 			return
 		}
 
 		// work, work
 		if workReceived {
-			fmt.Printf("txResultsToMaster: Sending '%v'\n", currentResult.Target.Name)
+			log.Printf("txResultsToMaster: Sending '%v'\n", currentResult.Target.Name)
 			time.Sleep(3 * time.Second)
 
 			// prepare data to be sent
 			resultJSON, err := json.Marshal(currentResult)
 			if err != nil {
-				fmt.Println("txResultsToMaster: Error: Couldn't create result json: ", err)
+				log.Println("txResultsToMaster: Error: Couldn't create result json: ", err)
 				workErr = err
 				goto endWork
 			}
@@ -264,7 +263,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 			// send data to master
 			httpResp, err := httpClient.Post(cfg.ReportURL, "application/json", bytes.NewBuffer(resultJSON))
 			if err != nil {
-				fmt.Println("txResultsToMaster: Error sending HTTP Request: ", err)
+				log.Println("txResultsToMaster: Error sending HTTP Request: ", err)
 				workErr = err
 				goto endWork
 			}
@@ -273,7 +272,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 			// read response from master
 			httpRespBody, err := ioutil.ReadAll(httpResp.Body)
 			if err != nil {
-				fmt.Println("txResultsToMaster: Can't read response body: ", err)
+				log.Println("txResultsToMaster: Can't read response body: ", err)
 				workErr = err
 				goto endWork
 			}
@@ -282,15 +281,15 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 			txResult := disttrace.SubmitResult{}
 			err = json.Unmarshal(httpRespBody, &txResult)
 			if err != nil {
-				fmt.Printf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
+				log.Printf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
 				workErr = err
 				goto endWork
 			}
 			if !txResult.Success && txResult.RetryPossible {
-				fmt.Println("txResultsToMaster: Master replied unsuccessful but retry possible, Error: ", txResult.Error)
+				log.Println("txResultsToMaster: Master replied unsuccessful but retry possible, Error: ", txResult.Error)
 				goto endWork
 			} else if !txResult.Success && !txResult.RetryPossible {
-				fmt.Println("txResultsToMaster: Master replied unsuccessful and shall not retry, Error: ", txResult.Error)
+				log.Println("txResultsToMaster: Master replied unsuccessful and shall not retry, Error: ", txResult.Error)
 			}
 
 			// finished handling, prepare for next item
@@ -303,10 +302,10 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 
 		if workErr != nil {
 			workErrCount++
-			fmt.Printf("txResultsToMaster: An error occurred when handling workitem '%v'. Will retry, retrycount: %v/%v...\n", currentResult.Target.Name, workErrCount, numMaxRetries)
+			log.Printf("txResultsToMaster: An error occurred when handling workitem '%v'. Will retry, retrycount: %v/%v...\n", currentResult.Target.Name, workErrCount, numMaxRetries)
 		}
 		if workErrCount >= numMaxRetries {
-			fmt.Printf("txResultsToMaster: Too many retries reached for workitem '%v'. Discarding item and continuing...\n", currentResult.Target.Name)
+			log.Printf("txResultsToMaster: Too many retries reached for workitem '%v'. Discarding item and continuing...\n", currentResult.Target.Name)
 			currentResult = disttrace.TraceResult{}
 			workReceived = false
 			workErrCount = 0
@@ -327,12 +326,12 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **
 	var nextTime time.Time
 
 	// infinite loop
-	fmt.Printf("tracePoller: Start...\n")
+	log.Printf("tracePoller: Start...\n")
 	for {
 		// check if we need to exit
 		select {
 		case <-doExit:
-			fmt.Println("tracePoller: Received exit signal, bye.")
+			log.Println("tracePoller: Received exit signal, bye.")
 			<-tracePollerProcRunning
 			return
 		default:
@@ -347,7 +346,7 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **
 
 			// loop through configured targets
 			for i, target := range tempCfgTargets {
-				fmt.Printf("tracePoller: Running measurement proc [%v] for element '%v'\n", i, target.Name)
+				log.Printf("tracePoller: Running measurement proc [%v] for element '%v'\n", i, target.Name)
 				go runMeasurement(i, target, tempCfg, txBuffer)
 			}
 
@@ -362,9 +361,9 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **
 }
 
 func printUsageAndExit() {
-	fmt.Println("Usage: ")
+	log.Println("Usage: ")
 	flag.PrintDefaults()
-	fmt.Println()
+	log.Println()
 
 	def := new(disttrace.SlaveConfig)
 	targets := make(map[uuid.UUID]disttrace.TraceTarget)
@@ -372,8 +371,8 @@ func printUsageAndExit() {
 	def.Targets = targets
 	defJSON, _ := json.MarshalIndent(def, "", "  ")
 
-	fmt.Println("Sample configuration file: ")
-	fmt.Println("", string(defJSON))
+	log.Println("Sample configuration file: ")
+	log.Println("", string(defJSON))
 
 	// can't run without master server URL
 	os.Exit(1)
@@ -381,7 +380,7 @@ func printUsageAndExit() {
 
 func main() {
 
-	fmt.Println("Main: Starting...")
+	log.Println("Main: Starting...")
 
 	// setup inter-proc communication channels
 	var txSendBuffer = make(chan disttrace.TraceResult, 100)
@@ -397,7 +396,7 @@ func main() {
 	// wait for signal in background...
 	go func() {
 		sig := <-osSignal
-		fmt.Println("Main: Received os signal: ", sig)
+		log.Println("Main: Received os signal: ", sig)
 		osSigReceived <- true
 	}()
 
@@ -413,7 +412,7 @@ func main() {
 
 	// check if valid URL was supplied or exit
 	if _, err := url.ParseRequestURI(masterURL); err != nil {
-		fmt.Printf("Error: Not an URL: \"%v\"\n", masterURL)
+		log.Printf("Error: Not an URL: \"%v\"\n", masterURL)
 		printUsageAndExit()
 	}
 
@@ -422,11 +421,11 @@ func main() {
 	ppCfg := &pCfg
 	err := getConfigFromMaster(masterURL, ppCfg)
 	if err != nil {
-		fmt.Println("Main: Fatal: Couldn't get configuration from master. Bye.")
+		log.Println("Main: Fatal: Couldn't get configuration from master. Bye.")
 		os.Exit(1)
 	}
 
-	fmt.Println("Main: Launching config poller process...")
+	log.Println("Main: Launching config poller process...")
 	go configPoller(configPollerProcDoExitSignal, masterURL, ppCfg)
 
 	for {
@@ -435,33 +434,33 @@ func main() {
 		if len(tempCfg.Targets) > 0 {
 			break
 		}
-		fmt.Println("Main: Waiting for valid config...")
+		log.Println("Main: Waiting for valid config...")
 	}
 
-	fmt.Println("Main: Launching transmit process...")
+	log.Println("Main: Launching transmit process...")
 	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, ppCfg)
 
-	fmt.Println("Main: Launching trace poller process...")
+	log.Println("Main: Launching trace poller process...")
 	go tracePoller(txSendBuffer, tracePollerProcDoExitSignal, ppCfg)
 
 	// wait here until told to quit by os signal
-	fmt.Println("Main: startup finished, going to sleep...")
+	log.Println("Main: startup finished, going to sleep...")
 	<-osSigReceived
 
-	fmt.Println("Main: Sending exit signal to processes...")
+	log.Println("Main: Sending exit signal to processes...")
 	txProcDoExitSignal <- true
 	tracePollerProcDoExitSignal <- true
 	configPollerProcDoExitSignal <- true
 
-	fmt.Println("Main: Waiting for config poller process to quit...")
+	log.Println("Main: Waiting for config poller process to quit...")
 	configPollerProcRunning <- true
 
-	fmt.Println("Main: Waiting for trace poller process to quit...")
+	log.Println("Main: Waiting for trace poller process to quit...")
 	tracePollerProcRunning <- true
 
-	fmt.Println("Main: Waiting for transmit process to quit...")
+	log.Println("Main: Waiting for transmit process to quit...")
 	txProcRunning <- true
 
-	fmt.Println("Main: Everything has gracefully ended...")
-	fmt.Println("Main: Bye.")
+	log.Println("Main: Everything has gracefully ended...")
+	log.Println("Main: Bye.")
 }
