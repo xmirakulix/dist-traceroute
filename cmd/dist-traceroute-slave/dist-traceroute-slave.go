@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	tracert "github.com/aeden/traceroute"
@@ -10,6 +11,7 @@ import (
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io/ioutil"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -20,27 +22,42 @@ var txProcRunning = make(chan bool, 1)
 var pollerProcRunning = make(chan bool, 1)
 
 // getConfigFromMaster fetches the slave's configuration from the master server
-func getConfigFromMaster() (cfg disttrace.SlaveConfig) {
+func getConfigFromMaster(masterURL string) (cfg disttrace.SlaveConfig, err error) {
 
-	target1 := disttrace.TraceTarget{
-		Name:    "WixRou8",
-		Address: "193.9.252.241",
+	fmt.Printf("getConfigFromMaster: Attempting to read configuration from '%v'\n", masterURL)
+	var httpClient = &http.Client{
+		Timeout: time.Second * 10,
 	}
-	target2 := disttrace.TraceTarget{
-		Name:    "LNS",
-		Address: "193.9.252.201",
-	}
-	cfg = disttrace.SlaveConfig{
-		ReportURL: "http://www.parnigoni.net",
-		Targets:   make(map[uuid.UUID]disttrace.TraceTarget),
-		Retries:   1,
-		MaxHops:   30,
-		TimeoutMs: 500,
-	}
-	cfg.Targets[uuid.New()] = target1
-	cfg.Targets[uuid.New()] = target2
 
-	return
+	// download configuration file from master
+	httpResp, err := httpClient.Get(masterURL)
+	if err != nil {
+		fmt.Println("getConfigFromMaster: Error sending HTTP Request: ", err)
+		return disttrace.SlaveConfig{}, errors.New("Error sending HTTP Request")
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode >= 400 {
+		fmt.Printf("getConfigFromMaster: Error getting configuration, received HTTP status: %v\n", httpResp.Status)
+		return disttrace.SlaveConfig{}, errors.New("Error getting configuration, received HTTP error")
+	}
+
+	// read response from master
+	httpRespBody, err := ioutil.ReadAll(httpResp.Body)
+	if err != nil {
+		fmt.Println("getConfigFromMaster: Can't read response body: ", err)
+		return disttrace.SlaveConfig{}, errors.New("Can't read response body")
+	}
+
+	// parse result
+	err = json.Unmarshal(httpRespBody, &cfg)
+	if err != nil {
+		fmt.Printf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
+		return disttrace.SlaveConfig{}, errors.New("Can't parse response body")
+	}
+
+	fmt.Printf("getConfigFromMaster: Got config from master, number of configured targets: %v\n", len(cfg.Targets))
+	return cfg, nil
 }
 
 func getCfgTargetByID(id uuid.UUID, cfg disttrace.SlaveConfig) (target *disttrace.TraceTarget) {
@@ -279,6 +296,24 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, cfg *dis
 	}
 }
 
+func printUsageAndExit() {
+	fmt.Println("Usage: ")
+	flag.PrintDefaults()
+	fmt.Println()
+
+	def := new(disttrace.SlaveConfig)
+	targets := make(map[uuid.UUID]disttrace.TraceTarget)
+	targets[uuid.New()] = disttrace.TraceTarget{}
+	def.Targets = targets
+	defJSON, _ := json.MarshalIndent(def, "", "  ")
+
+	fmt.Println("Sample configuration file: ")
+	fmt.Println("", string(defJSON))
+
+	// can't run without master server URL
+	os.Exit(1)
+}
+
 func main() {
 
 	fmt.Println("Main: Starting...")
@@ -305,23 +340,23 @@ func main() {
 	flag.StringVar(&masterURL, "master-server", "", "Set the http(s) `URL` to the configuration file on master server")
 	flag.Parse()
 
-	// print usage instructions and exit
+	// didn't receive a master URL, exit
 	if masterURL == "" {
-		fmt.Println("Usage: ")
-		flag.PrintDefaults()
-		fmt.Println()
-
-		def := new(disttrace.SlaveConfig)
-		targets := make(map[uuid.UUID]disttrace.TraceTarget)
-		targets[uuid.New()] = disttrace.TraceTarget{}
-		def.Targets = targets
-		defJSON, _ := json.MarshalIndent(def, "", "  ")
-		fmt.Println("Sample configuration file: ")
-		fmt.Println("", string(defJSON))
-		os.Exit(1)
+		printUsageAndExit()
 	}
 
-	cfg := getConfigFromMaster()
+	// check if valid URL was supplied or exit
+	if _, err := url.ParseRequestURI(masterURL); err != nil {
+		fmt.Printf("Error: Not an URL: \"%v\"\n", masterURL)
+		printUsageAndExit()
+	}
+
+	// read configuration from master server
+	cfg, err := getConfigFromMaster(masterURL)
+	if err != nil {
+		fmt.Println("Main: Fatal: Couldn't get configuration from master. Bye.")
+		os.Exit(1)
+	}
 
 	fmt.Println("Main: Launching transmit process...")
 	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, &cfg)
