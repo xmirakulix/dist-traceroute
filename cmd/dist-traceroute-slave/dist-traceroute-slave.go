@@ -23,6 +23,7 @@ var tracePollerProcRunning = make(chan bool, 1)
 var configPollerProcRunning = make(chan bool, 1)
 
 // TODO split logging in normal and debug
+// TODO slaves need names and shared secrets with master
 
 // getConfigFromMaster fetches the slave's configuration from the master server
 func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error {
