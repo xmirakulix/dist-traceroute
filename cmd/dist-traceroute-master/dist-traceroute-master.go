@@ -17,12 +17,13 @@ var configPollerProcRunning = make(chan bool, 1)
 
 // TODO https/TLS
 
-func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) (success bool) {
+func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
 
 	success = false
+	pCfg := *ppCfg
 
 	// check for match in master config
-	for _, trustedSlave := range trustedSlaves.Slaves {
+	for _, trustedSlave := range pCfg.Slaves {
 		if trustedSlave.Name == slaveCreds.Name && trustedSlave.Password == slaveCreds.Password {
 
 			// success!
@@ -38,11 +39,11 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 	return false
 }
 
-func httpDefaultHandler(writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) {
+func httpDefaultHandler(writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) {
 	log.Info("httpDefaultHandler: Received request for unknown URL: ", req.URL)
 }
 
-func httpRxResultHandler(writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) {
+func httpRxResultHandler(writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) {
 	log.Info("httpRxResultHandler: Received request results, URL: ", req.URL)
 
 	// init vars
@@ -74,7 +75,7 @@ func httpRxResultHandler(writer http.ResponseWriter, req *http.Request, trustedS
 	}
 
 	// check authorization
-	if !checkCredentials(result.Creds, writer, req, trustedSlaves) {
+	if !checkCredentials(result.Creds, writer, req, ppCfg) {
 		return
 	}
 
@@ -106,7 +107,7 @@ func httpRxResultHandler(writer http.ResponseWriter, req *http.Request, trustedS
 	return
 }
 
-func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) {
+func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) {
 	log.Info("httpTxConfigHandler: Received request for config, URL: ", req.URL)
 
 	// read request body
@@ -127,7 +128,7 @@ func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, trustedS
 	}
 
 	// check authorization
-	if !checkCredentials(slaveCreds, writer, req, trustedSlaves) {
+	if !checkCredentials(slaveCreds, writer, req, ppCfg) {
 		return
 	}
 
@@ -152,7 +153,7 @@ func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, trustedS
 	return
 }
 
-func httpServer(trustedSlaves disttrace.MasterConfig) {
+func httpServer(ppCfg **disttrace.GenericConfig) {
 
 	log.Info("httpServer: Start...")
 
@@ -160,17 +161,17 @@ func httpServer(trustedSlaves disttrace.MasterConfig) {
 
 	// handle results from slaves
 	http.HandleFunc("/results/", func(w http.ResponseWriter, r *http.Request) {
-		httpRxResultHandler(w, r, trustedSlaves)
+		httpRxResultHandler(w, r, ppCfg)
 	})
 
 	// handle config requests from slaves
 	http.HandleFunc("/config/", func(w http.ResponseWriter, r *http.Request) {
-		httpTxConfigHandler(w, r, trustedSlaves)
+		httpTxConfigHandler(w, r, ppCfg)
 	})
 
 	// handle everything else
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		httpDefaultHandler(w, r, trustedSlaves)
+		httpDefaultHandler(w, r, ppCfg)
 	})
 
 	// TODO shutdown handler https://golang.org/src/net/http/example_test.go
@@ -186,7 +187,7 @@ func main() {
 	log.Warn("Main: Starting...")
 
 	// setup inter-proc communication channels
-	// var configPollerProcDoExitSignal = make(chan bool)
+	var configPollerProcDoExitSignal = make(chan bool)
 
 	// setup listener for OS exit signals
 	osSignal := make(chan os.Signal, 1)
@@ -200,23 +201,21 @@ func main() {
 		osSigReceived <- true
 	}()
 
-	// TODO load config!
+	// TODO cmdline flag for config file name
+
 	// create master configuration
-	//	pCfg := new(disttrace.MasterConfig)
-	//	ppCfg := &pCfg
+	var pCfg = new(disttrace.GenericConfig)
+	pCfg.MasterConfig = new(disttrace.MasterConfig)
+	var ppCfg = &pCfg
+	var configFileName = "dt-slaves.json"
 
-	//log.Info("Main: Launching config poller process...")
-	//go configPoller(configPollerProcDoExitSignal, masterURL, slaveCreds, ppCfg)
+	log.Info("Main: Launching config poller process...")
+	go disttrace.MasterConfigPoller(configPollerProcDoExitSignal, configFileName, ppCfg)
 
-	trustedSlaves := disttrace.MasterConfig{
-		[]disttrace.SlaveCredentials{
-			disttrace.SlaveCredentials{Name: "falbala", Password: "1234"},
-			disttrace.SlaveCredentials{Name: "slave", Password: "123"},
-		},
-	}
+	disttrace.WaitForValidConfig("master", ppCfg)
 
 	log.Info("Main: Launching http server process...")
-	go httpServer(trustedSlaves)
+	go httpServer(ppCfg)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")

@@ -6,6 +6,12 @@ import (
 	"time"
 )
 
+// GenericConfig holds a master or slave configuration
+type GenericConfig struct {
+	*MasterConfig
+	*SlaveConfig
+}
+
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
 	ReportURL string                    `valid:"url,required"`

@@ -93,7 +93,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.SlaveConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.GenericConfig) {
 
 	// lock mutex
 	txProcRunning <- true
@@ -178,7 +178,16 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCr
 			txResult := disttrace.SubmitResult{}
 			err = json.Unmarshal(httpRespBody, &txResult)
 			if err != nil {
-				log.Warnf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
+
+				// only trace first 100 chars or response body
+				var trace string
+				if len(string(httpRespBody)) > 100 {
+					trace = string(httpRespBody)[:100]
+				} else {
+					trace = string(httpRespBody)
+				}
+
+				log.Warnf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v\n", trace, err)
 				workErr = err
 				goto endWork
 			}
@@ -215,7 +224,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCr
 }
 
 // tracePoller runs every minute and creates measurement processes for every target
-func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **disttrace.SlaveConfig) {
+func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **disttrace.GenericConfig) {
 
 	// lock mutex
 	tracePollerProcRunning <- true
@@ -239,7 +248,8 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **
 		if nextTime.Before(time.Now()) {
 
 			// get a copy of current config
-			tempCfg := **ppCfg
+			pTempCfg := *ppCfg
+			tempCfg := *pTempCfg.SlaveConfig
 			tempCfgTargets := tempCfg.Targets
 
 			// loop through configured targets
@@ -280,7 +290,7 @@ func printUsage(fSet flag.FlagSet) {
 
 func main() {
 	// setup logging
-	log.SetLevel(log.InfoLevel)
+	log.SetLevel(log.DebugLevel)
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
@@ -326,21 +336,16 @@ func main() {
 		log.Fatal("Error: No or invalid credentials (name, passwd) specified, can't run, Bye.")
 	}
 
+	// TODO init function for structs to avoid nil fields?
 	// read configuration from master server
-	pCfg := new(disttrace.SlaveConfig)
+	pCfg := new(disttrace.GenericConfig)
+	pCfg.SlaveConfig = new(disttrace.SlaveConfig)
 	ppCfg := &pCfg
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.ConfigPoller(configPollerProcDoExitSignal, masterURL, slaveCreds, ppCfg)
+	go disttrace.SlaveConfigPoller(configPollerProcDoExitSignal, masterURL, slaveCreds, ppCfg)
 
-	for {
-		time.Sleep(1 * time.Second)
-		tempCfg := **ppCfg
-		if len(tempCfg.Targets) > 0 {
-			break
-		}
-		log.Debug("Main: Waiting for valid config...")
-	}
+	disttrace.WaitForValidConfig("slave", ppCfg)
 
 	log.Info("Main: Launching transmit process...")
 	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, slaveCreds, ppCfg)
