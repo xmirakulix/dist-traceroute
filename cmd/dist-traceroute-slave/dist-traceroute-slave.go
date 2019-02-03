@@ -13,13 +13,13 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
+
+var doExit = false
 
 // TODO split logging in normal and debug
 // TODO slaves need names and shared secrets with master
@@ -93,10 +93,12 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.GenericConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.GenericConfig) {
 
 	// lock mutex
 	txProcRunning <- true
+
+	disttrace.WaitForValidConfig("txResultsToMaster", "slave", ppCfg)
 
 	// init
 	var workReceived = false
@@ -113,11 +115,9 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCr
 	log.Info("txResultsToMaster: Start...")
 	for {
 		// check if we need to exit
-		select {
-		case <-doExit:
+		if disttrace.CheckForQuit() {
 			log.Warn("txResultsToMaster: Received exit signal")
 			cleanupAndExit = true
-		default:
 		}
 
 		// check for work, if we don't still have workitems
@@ -158,7 +158,9 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCr
 			cfg := **ppCfg
 
 			// send data to master
-			httpResp, err := httpClient.Post(cfg.ReportURL, "application/json", bytes.NewBuffer(resultJSON))
+			url := "http://" + cfg.MasterHost + ":" + cfg.MasterPort + "/results/"
+
+			httpResp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(resultJSON))
 			if err != nil {
 				log.Warn("txResultsToMaster: Error sending HTTP Request: ", err)
 				workErr = err
@@ -224,10 +226,12 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCr
 }
 
 // tracePoller runs every minute and creates measurement processes for every target
-func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **disttrace.GenericConfig) {
+func tracePoller(txBuffer chan disttrace.TraceResult, ppCfg **disttrace.GenericConfig) {
 
 	// lock mutex
 	tracePollerProcRunning <- true
+
+	disttrace.WaitForValidConfig("tracePoller", "slave", ppCfg)
 
 	// init vars
 	var nextTime time.Time
@@ -236,12 +240,10 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **
 	log.Info("tracePoller: Start...")
 	for {
 		// check if we need to exit
-		select {
-		case <-doExit:
+		if disttrace.CheckForQuit() {
 			log.Warn("tracePoller: Received exit signal, bye.")
 			<-tracePollerProcRunning
 			return
-		default:
 		}
 
 		// is it time to run?
@@ -268,26 +270,6 @@ func tracePoller(txBuffer chan disttrace.TraceResult, doExit chan bool, ppCfg **
 	}
 }
 
-func printUsage(fSet flag.FlagSet) {
-	log.Warn("Usage: ")
-
-	buf := bytes.NewBuffer([]byte{})
-	fSet.SetOutput(buf)
-	fSet.PrintDefaults()
-	log.Warn(string(buf.Bytes()))
-	log.Warn()
-
-	// create sample config file
-	def := new(disttrace.SlaveConfig)
-	targets := make(map[uuid.UUID]disttrace.TraceTarget)
-	targets[uuid.New()] = disttrace.TraceTarget{}
-	def.Targets = targets
-	defJSON, _ := json.MarshalIndent(def, "", "  ")
-
-	log.Warn("Sample configuration file: ")
-	log.Warn("", string(defJSON))
-}
-
 func main() {
 	// setup logging
 	log.SetLevel(log.DebugLevel)
@@ -297,28 +279,17 @@ func main() {
 
 	// setup inter-proc communication channels
 	var txSendBuffer = make(chan disttrace.TraceResult, 100)
-	var txProcDoExitSignal = make(chan bool)
-	var tracePollerProcDoExitSignal = make(chan bool)
-	var configPollerProcDoExitSignal = make(chan bool)
 
 	// setup listener for OS exit signals
-	osSignal := make(chan os.Signal, 1)
-	osSigReceived := make(chan bool, 1)
-	signal.Notify(osSignal, syscall.SIGINT, syscall.SIGTERM)
-
-	// wait for signal in background...
-	go func() {
-		sig := <-osSignal
-		log.Warn("Main: Received os signal: ", sig)
-		osSigReceived <- true
-	}()
+	disttrace.ListenForOSSignals()
 
 	// parse cmdline arguments
-	var masterURL, slaveName, slavePwd string
+	var masterHost, masterPort, slaveName, slavePwd string
 	fSet := flag.FlagSet{}
 	outBuf := bytes.NewBuffer([]byte{})
 	fSet.SetOutput(outBuf)
-	fSet.StringVar(&masterURL, "master-server", "", "Set the http(s) `URL` to the configuration file on master server")
+	fSet.StringVar(&masterHost, "master", "", "Set the `hostname`/IP of the master server")
+	fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
 	fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
 	fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
 	fSet.Parse(os.Args[1:])
@@ -326,14 +297,11 @@ func main() {
 	slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
 	success, _ := valid.ValidateStruct(slaveCreds)
 
-	// didn't receive a master URL, exit
+	// valid cmdline arguments or exit
 	switch {
-	case !valid.IsURL(masterURL):
-		printUsage(fSet)
-		log.Fatal("Error: No or invalid master URL configured, can't run, Bye.")
-	case !success:
-		printUsage(fSet)
-		log.Fatal("Error: No or invalid credentials (name, passwd) specified, can't run, Bye.")
+	case !success || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
+		log.Warn("Error: No or invalid arguments, can't run, Bye.")
+		disttrace.PrintSlaveUsageAndExit(fSet, true)
 	}
 
 	// TODO init function for structs to avoid nil fields?
@@ -343,24 +311,17 @@ func main() {
 	ppCfg := &pCfg
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.SlaveConfigPoller(configPollerProcDoExitSignal, masterURL, slaveCreds, ppCfg)
-
-	disttrace.WaitForValidConfig("slave", ppCfg)
+	go disttrace.SlaveConfigPoller(masterHost, masterPort, slaveCreds, ppCfg)
 
 	log.Info("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, slaveCreds, ppCfg)
+	go txResultsToMaster(txSendBuffer, slaveCreds, ppCfg)
 
 	log.Info("Main: Launching trace poller process...")
-	go tracePoller(txSendBuffer, tracePollerProcDoExitSignal, ppCfg)
+	go tracePoller(txSendBuffer, ppCfg)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")
-	<-osSigReceived
-
-	log.Info("Warn: Sending exit signal to processes...")
-	txProcDoExitSignal <- true
-	tracePollerProcDoExitSignal <- true
-	configPollerProcDoExitSignal <- true
+	disttrace.WaitForOSSignalAndQuit()
 
 	log.Info("Main: Waiting for config poller process to quit...")
 	disttrace.ConfigPollerProcRunning <- true

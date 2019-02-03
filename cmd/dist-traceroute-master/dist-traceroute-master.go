@@ -1,15 +1,16 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
+	valid "github.com/asaskevich/govalidator"
 	log "github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 )
 
@@ -157,6 +158,8 @@ func httpServer(ppCfg **disttrace.GenericConfig) {
 
 	log.Info("httpServer: Start...")
 
+	disttrace.WaitForValidConfig("httpServer", "master", ppCfg)
+
 	// TODO: only handle content type json here?
 
 	// handle results from slaves
@@ -186,40 +189,42 @@ func main() {
 	// let's Go! :)
 	log.Warn("Main: Starting...")
 
-	// setup inter-proc communication channels
-	var configPollerProcDoExitSignal = make(chan bool)
-
 	// setup listener for OS exit signals
-	osSignal := make(chan os.Signal, 1)
-	osSigReceived := make(chan bool, 1)
-	signal.Notify(osSignal, syscall.SIGINT, syscall.SIGTERM)
+	disttrace.ListenForOSSignals()
 
-	// wait for signal in background...
-	go func() {
-		sig := <-osSignal
-		log.Warn("Main: Received os signal: ", sig)
-		osSigReceived <- true
-	}()
+	// parse cmdline arguments
+	var configFileName string
+	var sendHelp bool
+	fSet := flag.FlagSet{}
+	outBuf := bytes.NewBuffer([]byte{})
+	fSet.SetOutput(outBuf)
+	fSet.StringVar(&configFileName, "config", "dt-slaves.json", "Set config `filename`")
+	fSet.BoolVar(&sendHelp, "help", false, "display this message")
+	fSet.Parse(os.Args[1:])
 
-	// TODO cmdline flag for config file name
+	// valid cmdline arguments or exit
+	switch {
+	case valid.SafeFileName(configFileName) != configFileName:
+		log.Warn("Error: No or invalid commandline arguments, can't run, Bye.")
+		disttrace.PrintMasterUsageAndExit(fSet, true)
+	case sendHelp:
+		disttrace.PrintMasterUsageAndExit(fSet, false)
+	}
 
 	// create master configuration
 	var pCfg = new(disttrace.GenericConfig)
 	pCfg.MasterConfig = new(disttrace.MasterConfig)
 	var ppCfg = &pCfg
-	var configFileName = "dt-slaves.json"
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.MasterConfigPoller(configPollerProcDoExitSignal, configFileName, ppCfg)
-
-	disttrace.WaitForValidConfig("master", ppCfg)
+	go disttrace.MasterConfigPoller(configFileName, ppCfg)
 
 	log.Info("Main: Launching http server process...")
 	go httpServer(ppCfg)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")
-	<-osSigReceived
+	disttrace.WaitForOSSignalAndQuit()
 
 	log.Info("Warn: Everything has gracefully ended...")
 	log.Info("Warn: Bye.")

@@ -23,7 +23,8 @@ type masterPollerConfig struct {
 }
 
 type slavePollerConfig struct {
-	MasterURL  string
+	MasterHost string
+	MasterPort string
 	SlaveCreds SlaveCredentials
 }
 
@@ -31,25 +32,25 @@ type slavePollerConfig struct {
 var ConfigPollerProcRunning = make(chan bool, 1)
 
 // MasterConfigPoller runs as process, checks master configuration file(s) periodically
-func MasterConfigPoller(doExit chan bool, fileName string, ppCfg **GenericConfig) {
+func MasterConfigPoller(fileName string, ppCfg **GenericConfig) {
 
 	mpc := masterPollerConfig{FileName: fileName}
 	pc := pollerConfig{Type: "master", masterPollerConfig: &mpc}
 
-	configPoller(doExit, pc, ppCfg)
+	configPoller(pc, ppCfg)
 }
 
 // SlaveConfigPoller runs as process, periodically polls slave configuration on master
-func SlaveConfigPoller(doExit chan bool, masterURL string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) {
+func SlaveConfigPoller(masterHost string, masterPort string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) {
 
-	spc := slavePollerConfig{MasterURL: masterURL, SlaveCreds: slaveCreds}
+	spc := slavePollerConfig{MasterHost: masterHost, MasterPort: masterPort, SlaveCreds: slaveCreds}
 	pc := pollerConfig{Type: "slave", slavePollerConfig: &spc}
-	configPoller(doExit, pc, ppCfg)
+	configPoller(pc, ppCfg)
 
 }
 
 // configPoller implements generic poller for slave and master
-func configPoller(doExit chan bool, pollerCfg pollerConfig, ppCfg **GenericConfig) {
+func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 
 	// lock mutex
 	ConfigPollerProcRunning <- true
@@ -61,12 +62,10 @@ func configPoller(doExit chan bool, pollerCfg pollerConfig, ppCfg **GenericConfi
 	log.Info("configPoller: Start...")
 	for {
 		// check if we need to exit
-		select {
-		case <-doExit:
+		if CheckForQuit() {
 			log.Warn("configPoller: Received exit signal, bye.")
 			<-ConfigPollerProcRunning
 			return
-		default:
 		}
 
 		// is it time to run?
@@ -80,7 +79,7 @@ func configPoller(doExit chan bool, pollerCfg pollerConfig, ppCfg **GenericConfi
 			var err error
 
 			if pollerCfg.Type == "slave" {
-				err = getConfigFromMaster(pollerCfg.MasterURL, pollerCfg.SlaveCreds, ppNewCfg)
+				err = getConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.SlaveCreds, ppNewCfg)
 			} else {
 				err = getConfigFromFile(pollerCfg.FileName, ppNewCfg)
 			}
@@ -139,15 +138,17 @@ func getConfigFromFile(fileName string, ppCfg **GenericConfig) error {
 		log.Fatalf("getConfigFromFile: Couldn't unmarshal content of file '%v', Error: %v", fileName, err)
 	}
 
-	log.Debug("getConfigFromFile: Got config from file, number of configured slaves: ", len(newCfg.Slaves))
+	log.Debugf("getConfigFromFile: Got config from file '%v', number of configured slaves: %v", fileName, len(newCfg.Slaves))
 	*pCfg.MasterConfig = newCfg
 	return nil
 }
 
 // getConfigFromMaster fetches the slave's configuration from the master server
-func getConfigFromMaster(masterURL string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) error {
+func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) error {
 
 	var slaveCredsJSON, _ = json.Marshal(slaveCreds)
+	var masterURL = "http://" + masterHost + ":" + masterPort + "/config/"
+	// TODO validate URL
 
 	var newCfg = SlaveConfig{}
 	var pCfg = *ppCfg
@@ -186,7 +187,11 @@ func getConfigFromMaster(masterURL string, slaveCreds SlaveCredentials, ppCfg **
 		return errors.New("Can't parse response body")
 	}
 
-	// TODO make custom validator, write tests
+	// fill in master configuration, comes from cmdline arguments
+	newCfg.MasterHost = masterHost
+	newCfg.MasterPort = masterPort
+
+	// TODO make custom validator including targets, write tests
 	// validate config
 	success, err := valid.ValidateStruct(newCfg)
 	if !success {
@@ -209,7 +214,7 @@ func getConfigFromMaster(masterURL string, slaveCreds SlaveCredentials, ppCfg **
 }
 
 // WaitForValidConfig blocks until ppCfg holds a valid config
-func WaitForValidConfig(role string, ppCfg **GenericConfig) {
+func WaitForValidConfig(name string, role string, ppCfg **GenericConfig) {
 
 	// TODO validate properly!
 	for {
@@ -225,6 +230,10 @@ func WaitForValidConfig(role string, ppCfg **GenericConfig) {
 				return
 			}
 		}
-		log.Debug("Main: Waiting for valid config...")
+		log.Debugf("WaitForValidConfig: proc %v is waiting for valid config...", name)
+
+		if CheckForQuit() {
+			log.Fatal("WaitForValidConfig: Interrupted while waiting for valid config, exiting...")
+		}
 	}
 }

@@ -14,11 +14,12 @@ type GenericConfig struct {
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
-	ReportURL string                    `valid:"url,required"`
-	Targets   map[uuid.UUID]TraceTarget `valid:"-"`
-	Retries   int                       `valid:"int,required,range(0|10)"`
-	MaxHops   int                       `valid:"int,required,range(1|100)"`
-	TimeoutMs int                       `valid:"int,required,range(1|10000)"`
+	MasterHost string                    `json:"-" valid:"dns,	required"`
+	MasterPort string                    `json:"-" valid:"port,	required"`
+	Targets    map[uuid.UUID]TraceTarget `valid:"-"`
+	Retries    int                       `valid:"int,	required,	range(0|10)"`
+	MaxHops    int                       `valid:"int,	required,	range(1|100)"`
+	TimeoutMs  int                       `valid:"int,	required,	range(1|10000)"`
 }
 
 // MasterConfig holds the configuration for a dist-traceroute-master
@@ -28,8 +29,8 @@ type MasterConfig struct {
 
 // SlaveCredentials hold authentication information for slaves on master
 type SlaveCredentials struct {
-	Name     string `valid:"alphanum,required"`
-	Password string `valid:"alphanum,required"`
+	Name     string `valid:"alphanum,	required"`
+	Password string `valid:"alphanum,	required"`
 }
 
 // TraceTarget contains information about a single dist-traceroute target
