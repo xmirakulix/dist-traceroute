@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+var configPollerProcRunning = make(chan bool, 1)
+
 // TODO https/TLS
 
 func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) (success bool) {
@@ -153,16 +155,22 @@ func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, trustedS
 func httpServer(trustedSlaves disttrace.MasterConfig) {
 
 	log.Info("httpServer: Start...")
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		httpDefaultHandler(w, r, trustedSlaves)
-	})
 
 	// TODO: only handle content type json here?
+
+	// handle results from slaves
 	http.HandleFunc("/results/", func(w http.ResponseWriter, r *http.Request) {
 		httpRxResultHandler(w, r, trustedSlaves)
 	})
+
+	// handle config requests from slaves
 	http.HandleFunc("/config/", func(w http.ResponseWriter, r *http.Request) {
 		httpTxConfigHandler(w, r, trustedSlaves)
+	})
+
+	// handle everything else
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		httpDefaultHandler(w, r, trustedSlaves)
 	})
 
 	// TODO shutdown handler https://golang.org/src/net/http/example_test.go
@@ -177,6 +185,9 @@ func main() {
 	// let's Go! :)
 	log.Warn("Main: Starting...")
 
+	// setup inter-proc communication channels
+	// var configPollerProcDoExitSignal = make(chan bool)
+
 	// setup listener for OS exit signals
 	osSignal := make(chan os.Signal, 1)
 	osSigReceived := make(chan bool, 1)
@@ -190,6 +201,12 @@ func main() {
 	}()
 
 	// TODO load config!
+	// create master configuration
+	//	pCfg := new(disttrace.MasterConfig)
+	//	ppCfg := &pCfg
+
+	//log.Info("Main: Launching config poller process...")
+	//go configPoller(configPollerProcDoExitSignal, masterURL, slaveCreds, ppCfg)
 
 	trustedSlaves := disttrace.MasterConfig{
 		[]disttrace.SlaveCredentials{
