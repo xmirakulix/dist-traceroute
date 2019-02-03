@@ -8,21 +8,33 @@ import (
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
-	ReportURL string
-	Targets   map[uuid.UUID]TraceTarget
-	Retries   int
-	MaxHops   int
-	TimeoutMs int
+	ReportURL string                    `valid:"url,required"`
+	Targets   map[uuid.UUID]TraceTarget `valid:"-"`
+	Retries   int                       `valid:"int,required,range(0|10)"`
+	MaxHops   int                       `valid:"int,required,range(1|100)"`
+	TimeoutMs int                       `valid:"int,required,range(1|10000)"`
+}
+
+// MasterConfig holds the configuration for a dist-traceroute-master
+type MasterConfig struct {
+	Slaves []SlaveCredentials
+}
+
+// SlaveCredentials hold authentication information for slaves on master
+type SlaveCredentials struct {
+	Name     string `valid:"alphanum,required"`
+	Password string `valid:"alphanum,required"`
 }
 
 // TraceTarget contains information about a single dist-traceroute target
 type TraceTarget struct {
-	Name    string
-	Address string
+	Name    string `valid:"alphanum,required"`
+	Address string `valid:"ipv4,required"`
 }
 
 // TraceResult holds all relevant information of a single traceroute run
 type TraceResult struct {
+	Creds    SlaveCredentials
 	ID       uuid.UUID
 	DateTime time.Time
 	Target   TraceTarget

@@ -6,12 +6,12 @@ import (
 	"errors"
 	"flag"
 	tracert "github.com/aeden/traceroute"
+	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
 	log "github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io/ioutil"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -26,10 +26,12 @@ var configPollerProcRunning = make(chan bool, 1)
 // TODO slaves need names and shared secrets with master
 
 // getConfigFromMaster fetches the slave's configuration from the master server
-func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error {
+func getConfigFromMaster(masterURL string, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.SlaveConfig) error {
 
-	newCfg := disttrace.SlaveConfig{}
-	pCfg := *ppCfg
+	var slaveCredsJSON, _ = json.Marshal(slaveCreds)
+
+	var newCfg = disttrace.SlaveConfig{}
+	var pCfg = *ppCfg
 
 	log.Debug("getConfigFromMaster: Attempting to read configuration from URL: ", masterURL)
 	var httpClient = &http.Client{
@@ -37,16 +39,16 @@ func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error 
 	}
 
 	// download configuration file from master
-	httpResp, err := httpClient.Get(masterURL)
+	httpResp, err := httpClient.Post(masterURL, "application/json", bytes.NewBuffer(slaveCredsJSON))
 	if err != nil {
-		log.Warn("getConfigFromMaster: Error sending HTTP Request:", err)
+		log.Warn("getConfigFromMaster: Error sending HTTP Request: ", err)
 		*pCfg = newCfg
 		return errors.New("Error sending HTTP Request")
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode >= 400 {
-		log.Warn("getConfigFromMaster: Error getting configuration, received HTTP status:", httpResp.Status)
+		log.Warn("getConfigFromMaster: Error getting configuration, received HTTP status: ", httpResp.Status)
 		*pCfg = newCfg
 		return errors.New("Error getting configuration, received HTTP error")
 	}
@@ -62,18 +64,37 @@ func getConfigFromMaster(masterURL string, ppCfg **disttrace.SlaveConfig) error 
 	// parse result
 	err = json.Unmarshal(httpRespBody, &newCfg)
 	if err != nil {
-		log.Warnf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v\n", string(httpRespBody)[:100], err)
+		log.Warnf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v", string(httpRespBody)[:100], err)
 		*pCfg = newCfg
 		return errors.New("Can't parse response body")
 	}
 
-	log.Debug("getConfigFromMaster: Got config from master, number of configured targets:", len(newCfg.Targets))
+	// TODO make custom validator, write tests
+	// validate config
+	success, err := valid.ValidateStruct(newCfg)
+	if !success {
+		log.Warn("getConfigFromMaster: Validation of received config failed. Error: ", err)
+		*pCfg = newCfg
+		return errors.New("Validation failed")
+	}
+
+	// validate targets
+	for i, target := range newCfg.Targets {
+		success, err := valid.ValidateStruct(target)
+		if !success {
+			log.Warnf("getConfigFromMaster: Validation of target '%v' in received config failed. Error: %v", i, err)
+			*pCfg = newCfg
+			return errors.New("Validation failed")
+		}
+	}
+
+	log.Debug("getConfigFromMaster: Got config from master, number of configured targets: ", len(newCfg.Targets))
 	*pCfg = newCfg
 	return nil
 }
 
 // configPoller checks periodically, if a new configuration is available on master server
-func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveConfig) {
+func configPoller(doExit chan bool, masterURL string, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
 	configPollerProcRunning <- true
@@ -99,7 +120,7 @@ func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveCon
 
 			pNewCfg := new(disttrace.SlaveConfig)
 			ppNewCfg := &pNewCfg
-			err := getConfigFromMaster(masterURL, ppNewCfg)
+			err := getConfigFromMaster(masterURL, slaveCreds, ppNewCfg)
 			if err != nil {
 				log.Warn("configPoller: Couldn't get current configuration from master server")
 
@@ -109,7 +130,8 @@ func configPoller(doExit chan bool, masterURL string, ppCfg **disttrace.SlaveCon
 
 				if string(newCfgJSON) != string(oldCfgJSON) {
 					// config changed
-					log.Info("configPoller: Configuration on master changed, applying new configuration and going to sleep...")
+					newCfg := **ppNewCfg
+					log.Infof("configPoller: Configuration on master changed, applying new configuration (%v targets) and going to sleep...", len(newCfg.Targets))
 					pCfg := *ppCfg
 					*pCfg = **ppNewCfg
 
@@ -198,7 +220,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg **disttrace.SlaveConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
 	txProcRunning <- true
@@ -251,6 +273,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, doExit chan bool, ppCfg *
 			time.Sleep(3 * time.Second)
 
 			// prepare data to be sent
+			currentResult.Creds = slaveCreds
 			resultJSON, err := json.Marshal(currentResult)
 			if err != nil {
 				log.Warn("txResultsToMaster: Error: Couldn't create result json: ", err)
@@ -408,35 +431,34 @@ func main() {
 	}()
 
 	// parse cmdline arguments
-	var masterURL string
+	var masterURL, slaveName, slavePwd string
 	fSet := flag.FlagSet{}
 	outBuf := bytes.NewBuffer([]byte{})
 	fSet.SetOutput(outBuf)
 	fSet.StringVar(&masterURL, "master-server", "", "Set the http(s) `URL` to the configuration file on master server")
+	fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
+	fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
 	fSet.Parse(os.Args[1:])
 
-	// didn't receive a master URL, exit
-	if masterURL == "" {
-		printUsage(fSet)
-		log.Fatal("Error: No master URL configured, can't run, Bye.")
-	}
+	slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
+	success, _ := valid.ValidateStruct(slaveCreds)
 
-	// check if valid URL was supplied or exit
-	if _, err := url.ParseRequestURI(masterURL); err != nil {
+	// didn't receive a master URL, exit
+	switch {
+	case !valid.IsURL(masterURL):
 		printUsage(fSet)
-		log.Fatal("Error: Master URL invalid, can't run: ", masterURL)
+		log.Fatal("Error: No or invalid master URL configured, can't run, Bye.")
+	case !success:
+		printUsage(fSet)
+		log.Fatal("Error: No or invalid credentials (name, passwd) specified, can't run, Bye.")
 	}
 
 	// read configuration from master server
 	pCfg := new(disttrace.SlaveConfig)
 	ppCfg := &pCfg
-	err := getConfigFromMaster(masterURL, ppCfg)
-	if err != nil {
-		log.Fatal("Main: Fatal: Couldn't get configuration from master. Bye.")
-	}
 
 	log.Info("Main: Launching config poller process...")
-	go configPoller(configPollerProcDoExitSignal, masterURL, ppCfg)
+	go configPoller(configPollerProcDoExitSignal, masterURL, slaveCreds, ppCfg)
 
 	for {
 		time.Sleep(1 * time.Second)
@@ -448,7 +470,7 @@ func main() {
 	}
 
 	log.Info("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, ppCfg)
+	go txResultsToMaster(txSendBuffer, txProcDoExitSignal, slaveCreds, ppCfg)
 
 	log.Info("Main: Launching trace poller process...")
 	go tracePoller(txSendBuffer, tracePollerProcDoExitSignal, ppCfg)

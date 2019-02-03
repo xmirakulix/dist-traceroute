@@ -10,15 +10,37 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 )
 
 // TODO https/TLS
 
-func httpDefaultHandler(writer http.ResponseWriter, req *http.Request) {
+func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) (success bool) {
+
+	success = false
+
+	// check for match in master config
+	for _, trustedSlave := range trustedSlaves.Slaves {
+		if trustedSlave.Name == slaveCreds.Name && trustedSlave.Password == slaveCreds.Password {
+
+			// success!
+			log.Debugf("checkCredentials: Successfully authenticated slave '%v' from peer: %v", slaveCreds.Name, req.RemoteAddr)
+			return true
+		}
+	}
+
+	// no match found, unauthorized!
+	log.Warnf("checkCredentials: Unauthorized peer '%v'", req.RemoteAddr)
+	time.Sleep(2 * time.Second)
+	http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+	return false
+}
+
+func httpDefaultHandler(writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) {
 	log.Info("httpDefaultHandler: Received request for unknown URL: ", req.URL)
 }
 
-func httpRxResultHandler(writer http.ResponseWriter, req *http.Request) {
+func httpRxResultHandler(writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) {
 	log.Info("httpRxResultHandler: Received request results, URL: ", req.URL)
 
 	// init vars
@@ -39,7 +61,7 @@ func httpRxResultHandler(writer http.ResponseWriter, req *http.Request) {
 
 		responseJSON, err := json.Marshal(response)
 		if err != nil {
-			http.Error(writer, "Error: Couldn't marshal error response into JSON", http.StatusInternalServerError)
+			http.Error(writer, "Error: Couldn't marshal error response into JSON", http.StatusBadRequest)
 			log.Warn("httpRxResultHandler: Error: Couldn't marshal error response into JSON: ", err)
 			return
 		}
@@ -49,11 +71,15 @@ func httpRxResultHandler(writer http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// TODO check credentials
+	// check authorization
+	if !checkCredentials(result.Creds, writer, req, trustedSlaves) {
+		return
+	}
 
 	log.Info("httpRxResultHandler: Received results for target: ", result.Target.Name)
 
-	// TODO: use submitted result!
+	// TODO validate results
+	// TODO use submitted result!
 
 	// reply with success
 	response := disttrace.SubmitResult{
@@ -78,13 +104,35 @@ func httpRxResultHandler(writer http.ResponseWriter, req *http.Request) {
 	return
 }
 
-func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request) {
+func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, trustedSlaves disttrace.MasterConfig) {
 	log.Info("httpTxConfigHandler: Received request for config, URL: ", req.URL)
 
-	// TODO check credentials
+	// read request body
+	reqBody, err := ioutil.ReadAll(req.Body)
+	if err != nil {
+		log.Warn("httpTxConfigHandler: Can't read request body, Error: ", err)
+		http.Error(writer, "Can't read request", http.StatusInternalServerError)
+		return
+	}
+
+	// parse JSON from request body
+	slaveCreds := disttrace.SlaveCredentials{}
+	err = json.Unmarshal(reqBody, &slaveCreds)
+	if err != nil {
+		log.Warn("httpTxConfigHandler: Can't unmarshal request body into slave creds, Error: ", err)
+		http.Error(writer, "Can't unmarshal request body", http.StatusBadRequest)
+		return
+	}
+
+	// check authorization
+	if !checkCredentials(slaveCreds, writer, req, trustedSlaves) {
+		return
+	}
+
+	// TODO validate config
 
 	// read config from disk
-	cfgFile := "dist-traceroute.json"
+	cfgFile := "dt-targets.json"
 	body, err := ioutil.ReadFile(cfgFile)
 	if err != nil {
 		http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
@@ -102,12 +150,20 @@ func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request) {
 	return
 }
 
-func httpServer() {
+func httpServer(trustedSlaves disttrace.MasterConfig) {
 
 	log.Info("httpServer: Start...")
-	http.HandleFunc("/", httpDefaultHandler)
-	http.HandleFunc("/results/", httpRxResultHandler)
-	http.HandleFunc("/config/", httpTxConfigHandler)
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		httpDefaultHandler(w, r, trustedSlaves)
+	})
+
+	// TODO: only handle content type json here?
+	http.HandleFunc("/results/", func(w http.ResponseWriter, r *http.Request) {
+		httpRxResultHandler(w, r, trustedSlaves)
+	})
+	http.HandleFunc("/config/", func(w http.ResponseWriter, r *http.Request) {
+		httpTxConfigHandler(w, r, trustedSlaves)
+	})
 
 	// TODO shutdown handler https://golang.org/src/net/http/example_test.go
 	log.Fatal(http.ListenAndServe(":8990", nil))
@@ -133,8 +189,17 @@ func main() {
 		osSigReceived <- true
 	}()
 
+	// TODO load config!
+
+	trustedSlaves := disttrace.MasterConfig{
+		[]disttrace.SlaveCredentials{
+			disttrace.SlaveCredentials{Name: "falbala", Password: "1234"},
+			disttrace.SlaveCredentials{Name: "slave", Password: "123"},
+		},
+	}
+
 	log.Info("Main: Launching http server process...")
-	go httpServer()
+	go httpServer(trustedSlaves)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")

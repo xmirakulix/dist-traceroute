@@ -1,0 +1,12 @@
+{
+	"Slaves": [
+		{
+			"Name": "falbala",
+			"Password": "1234"
+		},
+		{
+            "Name": "slave",
+			"Password": "123"
+		}
+	]
+} 
