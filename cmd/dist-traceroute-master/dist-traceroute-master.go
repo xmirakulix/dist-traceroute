@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"flag"
 	valid "github.com/asaskevich/govalidator"
@@ -14,7 +15,7 @@ import (
 	"time"
 )
 
-var configPollerProcRunning = make(chan bool, 1)
+var httpProcQuitDone = make(chan bool, 1)
 
 // TODO https/TLS
 
@@ -40,118 +41,134 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 	return false
 }
 
-func httpDefaultHandler(writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) {
-	log.Info("httpDefaultHandler: Received request for unknown URL: ", req.URL)
+func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Info("httpDefaultHandler: Received request for unknown URL: ", req.URL)
+	}
 }
 
-func httpRxResultHandler(writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) {
-	log.Info("httpRxResultHandler: Received request results, URL: ", req.URL)
+func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Info("httpRxResultHandler: Received request results, URL: ", req.URL)
 
-	// init vars
-	result := disttrace.TraceResult{}
-	jsonDecoder := json.NewDecoder(req.Body)
+		// init vars
+		result := disttrace.TraceResult{}
+		jsonDecoder := json.NewDecoder(req.Body)
 
-	// decode request
-	err := jsonDecoder.Decode(&result)
-	if err != nil {
-		log.Warn("httpRxResultHandler: Couldn't decode request body into JSON: ", err)
+		// decode request
+		err := jsonDecoder.Decode(&result)
+		if err != nil {
+			log.Warn("httpRxResultHandler: Couldn't decode request body into JSON: ", err)
 
-		// create error response
+			// create error response
+			response := disttrace.SubmitResult{
+				Success:       false,
+				Error:         "Couldn't decode request body into JSON: " + err.Error(),
+				RetryPossible: false,
+			}
+
+			responseJSON, err := json.Marshal(response)
+			if err != nil {
+				http.Error(writer, "Error: Couldn't marshal error response into JSON", http.StatusBadRequest)
+				log.Warn("httpRxResultHandler: Error: Couldn't marshal error response into JSON: ", err)
+				return
+			}
+
+			// reply with error
+			http.Error(writer, string(responseJSON), http.StatusBadRequest)
+			return
+		}
+
+		// check authorization
+		if !checkCredentials(result.Creds, writer, req, ppCfg) {
+			return
+		}
+
+		log.Info("httpRxResultHandler: Received results for target: ", result.Target.Name)
+
+		// TODO validate results
+		// TODO use submitted result!
+
+		// reply with success
 		response := disttrace.SubmitResult{
-			Success:       false,
-			Error:         "Couldn't decode request body into JSON: " + err.Error(),
-			RetryPossible: false,
+			Success:       true,
+			Error:         "",
+			RetryPossible: true,
 		}
 
 		responseJSON, err := json.Marshal(response)
 		if err != nil {
-			http.Error(writer, "Error: Couldn't marshal error response into JSON", http.StatusBadRequest)
-			log.Warn("httpRxResultHandler: Error: Couldn't marshal error response into JSON: ", err)
+			http.Error(writer, "Error: Couldn't marshal success response into JSON", http.StatusInternalServerError)
+			log.Warn("httpRxResultHandler: Error: Couldn't marshal success response into JSON: ", err)
 			return
 		}
 
-		// reply with error
-		http.Error(writer, string(responseJSON), http.StatusBadRequest)
+		// Success!
+		_, err = io.WriteString(writer, string(responseJSON))
+		if err != nil {
+			log.Warn("httpRxResultHandler: Couldn't write success response: ", err)
+		}
+		log.Debug("httpRxResultHandler: Replying success.")
 		return
 	}
-
-	// check authorization
-	if !checkCredentials(result.Creds, writer, req, ppCfg) {
-		return
-	}
-
-	log.Info("httpRxResultHandler: Received results for target: ", result.Target.Name)
-
-	// TODO validate results
-	// TODO use submitted result!
-
-	// reply with success
-	response := disttrace.SubmitResult{
-		Success:       true,
-		Error:         "",
-		RetryPossible: true,
-	}
-
-	responseJSON, err := json.Marshal(response)
-	if err != nil {
-		http.Error(writer, "Error: Couldn't marshal success response into JSON", http.StatusInternalServerError)
-		log.Warn("httpRxResultHandler: Error: Couldn't marshal success response into JSON: ", err)
-		return
-	}
-
-	// Success!
-	_, err = io.WriteString(writer, string(responseJSON))
-	if err != nil {
-		log.Warn("httpRxResultHandler: Couldn't write success response: ", err)
-	}
-	log.Debug("httpRxResultHandler: Replying success.")
-	return
 }
 
-func httpTxConfigHandler(writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) {
-	log.Info("httpTxConfigHandler: Received request for config, URL: ", req.URL)
+func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Info("httpTxConfigHandler: Received request for config, URL: ", req.URL)
 
-	// read request body
-	reqBody, err := ioutil.ReadAll(req.Body)
-	if err != nil {
-		log.Warn("httpTxConfigHandler: Can't read request body, Error: ", err)
-		http.Error(writer, "Can't read request", http.StatusInternalServerError)
+		// read request body
+		reqBody, err := ioutil.ReadAll(req.Body)
+		if err != nil {
+			log.Warn("httpTxConfigHandler: Can't read request body, Error: ", err)
+			http.Error(writer, "Can't read request", http.StatusInternalServerError)
+			return
+		}
+
+		// parse JSON from request body
+		slaveCreds := disttrace.SlaveCredentials{}
+		err = json.Unmarshal(reqBody, &slaveCreds)
+		if err != nil {
+			log.Warn("httpTxConfigHandler: Can't unmarshal request body into slave creds, Error: ", err)
+			http.Error(writer, "Can't unmarshal request body", http.StatusBadRequest)
+			return
+		}
+
+		// check authorization
+		if !checkCredentials(slaveCreds, writer, req, ppCfg) {
+			return
+		}
+
+		// read config from disk
+		cfgFile := "dt-targets.json"
+		body, err := ioutil.ReadFile(cfgFile)
+		if err != nil {
+			http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
+			log.Warn("httpTxConfigHandler: Error: Couldn't read config file: ", err)
+			return
+		}
+
+		slaveConf := disttrace.SlaveConfig{}
+		err = json.Unmarshal(body, &slaveConf)
+		if err != nil {
+			http.Error(writer, "Error: Can't unmarshal config", http.StatusInternalServerError)
+			log.Warn("httpTxConfigHandler: Loaded config can't be unmarshalled, Error: ", err)
+		}
+
+		if ok, err := valid.ValidateStruct(slaveConf); !ok || err != nil {
+			http.Error(writer, "Error: Loaded config is invalid", http.StatusInternalServerError)
+			log.Warn("httpTxConfigHandler: Loaded config is invalid, Error: ", err)
+		}
+
+		// send config to slave
+		_, err = io.WriteString(writer, string(body))
+		if err != nil {
+			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
+		}
+
+		log.Debug("httpTxConfigHandler: Replying configuration.")
 		return
 	}
-
-	// parse JSON from request body
-	slaveCreds := disttrace.SlaveCredentials{}
-	err = json.Unmarshal(reqBody, &slaveCreds)
-	if err != nil {
-		log.Warn("httpTxConfigHandler: Can't unmarshal request body into slave creds, Error: ", err)
-		http.Error(writer, "Can't unmarshal request body", http.StatusBadRequest)
-		return
-	}
-
-	// check authorization
-	if !checkCredentials(slaveCreds, writer, req, ppCfg) {
-		return
-	}
-
-	// TODO validate config
-
-	// read config from disk
-	cfgFile := "dt-targets.json"
-	body, err := ioutil.ReadFile(cfgFile)
-	if err != nil {
-		http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
-		log.Warn("httpTxConfigHandler: Error: Couldn't read config file: ", err)
-		return
-	}
-
-	// send config to slave
-	_, err = io.WriteString(writer, string(body))
-	if err != nil {
-		log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
-	}
-
-	log.Debug("httpTxConfigHandler: Replying configuration.")
-	return
 }
 
 func httpServer(ppCfg **disttrace.GenericConfig) {
@@ -160,25 +177,43 @@ func httpServer(ppCfg **disttrace.GenericConfig) {
 
 	disttrace.WaitForValidConfig("httpServer", "master", ppCfg)
 
-	// TODO: only handle content type json here?
+	srv := &http.Server{
+		Addr: ":8990",
+	}
 
 	// handle results from slaves
-	http.HandleFunc("/results/", func(w http.ResponseWriter, r *http.Request) {
-		httpRxResultHandler(w, r, ppCfg)
-	})
+	http.HandleFunc("/results/", httpRxResultHandler(ppCfg))
 
 	// handle config requests from slaves
-	http.HandleFunc("/config/", func(w http.ResponseWriter, r *http.Request) {
-		httpTxConfigHandler(w, r, ppCfg)
-	})
+	http.HandleFunc("/config/", httpTxConfigHandler(ppCfg))
 
 	// handle everything else
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		httpDefaultHandler(w, r, ppCfg)
-	})
+	http.HandleFunc("/", httpDefaultHandler(ppCfg))
 
-	// TODO shutdown handler https://golang.org/src/net/http/example_test.go
-	log.Fatal(http.ListenAndServe(":8990", nil))
+	// start server...
+	go func() {
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal("httpServer: HTTP Server failure, ListenAndServe: ", err)
+		}
+	}()
+
+	// wait for quit signal...
+	for {
+		if disttrace.CheckForQuit() {
+			log.Warn("httpServer: Received signal to shutdown...")
+			ctx, cFunc := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := srv.Shutdown(ctx); err != nil {
+				log.Warn("httpServer: Error while shutdown of HTTP server, Error: ", err)
+			}
+			cFunc()
+
+			log.Info("httpServer: Shutdown complete.")
+			httpProcQuitDone <- true
+			return
+		}
+
+		time.Sleep(1 * time.Second)
+	}
 }
 
 func main() {
@@ -226,6 +261,10 @@ func main() {
 	log.Info("Main: startup finished, going to sleep...")
 	disttrace.WaitForOSSignalAndQuit()
 
-	log.Info("Warn: Everything has gracefully ended...")
-	log.Info("Warn: Bye.")
+	// wait for graceful shutdown of HTTP server
+	log.Info("Main: waiting for HTTP server shutdown...")
+	<-httpProcQuitDone
+
+	log.Warn("Main: Everything has gracefully ended...")
+	log.Warn("Main: Bye.")
 }
