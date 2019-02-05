@@ -14,8 +14,8 @@ type GenericConfig struct {
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
-	MasterHost string                    `json:"-" valid:"dns,	required"`
-	MasterPort string                    `json:"-" valid:"port,	required"`
+	MasterHost string                    `json:"-" valid:"-"`
+	MasterPort string                    `json:"-" valid:"-"`
 	Targets    map[uuid.UUID]TraceTarget `valid:"-"`
 	Retries    int                       `valid:"int,	required,	range(0|10)"`
 	MaxHops    int                       `valid:"int,	required,	range(1|100)"`

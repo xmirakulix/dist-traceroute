@@ -187,10 +187,6 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 		return errors.New("Can't parse response body")
 	}
 
-	// fill in master configuration, comes from cmdline arguments
-	newCfg.MasterHost = masterHost
-	newCfg.MasterPort = masterPort
-
 	// TODO make custom validator including targets, write tests
 	// validate config
 	success, err := valid.ValidateStruct(newCfg)
@@ -207,6 +203,10 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 			return errors.New("Validation failed")
 		}
 	}
+
+	// fill in master configuration, comes from cmdline arguments
+	newCfg.MasterHost = masterHost
+	newCfg.MasterPort = masterPort
 
 	log.Debug("getConfigFromMaster: Got config from master, number of configured targets: ", len(newCfg.Targets))
 	*pCfg.SlaveConfig = newCfg
