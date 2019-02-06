@@ -148,7 +148,11 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 
 	var slaveCredsJSON, _ = json.Marshal(slaveCreds)
 	var masterURL = "http://" + masterHost + ":" + masterPort + "/config/"
-	// TODO validate URL
+
+	if !valid.IsURL(masterURL) {
+		log.Warnf("getConfigFromMaster: Cant' get config, master URL '%v' is invalid", masterURL)
+		return errors.New("Can't get config, master URL is invalid")
+	}
 
 	var newCfg = SlaveConfig{}
 	var pCfg = *ppCfg
@@ -187,7 +191,6 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 		return errors.New("Can't parse response body")
 	}
 
-	// TODO make custom validator including targets, write tests
 	// validate config
 	success, err := valid.ValidateStruct(newCfg)
 	if !success {
