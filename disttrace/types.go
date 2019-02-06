@@ -35,19 +35,19 @@ type SlaveCredentials struct {
 
 // TraceTarget contains information about a single dist-traceroute target
 type TraceTarget struct {
-	Name    string `valid:"alphanum,required"`
-	Address string `valid:"ipv4,required"`
+	Name    string `valid:"alphanum,	required"`
+	Address string `valid:"ipv4,		required"`
 }
 
 // TraceResult holds all relevant information of a single traceroute run
 type TraceResult struct {
-	Creds    SlaveCredentials
-	ID       uuid.UUID
-	DateTime time.Time
-	Target   TraceTarget
-	Success  bool
-	HopCount int
-	Hops     []tracert.TracerouteHop
+	Creds    SlaveCredentials        `valid:"				required"`
+	ID       uuid.UUID               `valid:"				required"`
+	DateTime time.Time               `valid:"				required"`
+	Target   TraceTarget             `valid:"		 		required"`
+	Success  bool                    `valid:"				required"`
+	HopCount int                     `valid:"int,		 	required, 	range(1|100)"`
+	Hops     []tracert.TracerouteHop `valid:"				required"`
 }
 
 // SubmitResult holds information about success or failure of submission of result(s)
