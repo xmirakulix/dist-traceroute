@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-
+	"errors"
 	"flag"
 	tracert "github.com/aeden/traceroute"
 	valid "github.com/asaskevich/govalidator"
@@ -154,6 +154,8 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 				goto endWork
 			}
 
+			log.Debugf("txResultsToMaster: Transmitting... \n%s", resultJSON)
+
 			// get current config
 			cfg := **ppCfg
 
@@ -176,6 +178,12 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 				goto endWork
 			}
 
+			if httpResp.StatusCode != 200 {
+				log.Warnf("txResultsToMaster: Received non-OK status '%v', response: %s", httpResp.Status, httpRespBody)
+				workErr = err
+				goto endWork
+			}
+
 			// parse result
 			txResult := disttrace.SubmitResult{}
 			err = json.Unmarshal(httpRespBody, &txResult)
@@ -194,13 +202,15 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 				goto endWork
 			}
 			if !txResult.Success && txResult.RetryPossible {
-				log.Warn("txResultsToMaster: Master replied unsuccessful but retry possible, Error:", txResult.Error)
+				log.Warn("txResultsToMaster: Master replied that request was unsuccessful but retry possible, Error:", txResult.Error)
+				workErr = errors.New("Master replied success=false, but retry ok")
 				goto endWork
 			} else if !txResult.Success && !txResult.RetryPossible {
-				log.Warn("txResultsToMaster: Master replied unsuccessful and shall not retry, Error:", txResult.Error)
+				log.Warn("txResultsToMaster: Master replied that request was unsuccessful and shall not retry, Error:", txResult.Error)
+			} else {
+				log.Info("txResultsToMaster: Successfully transmitted results for item: ", currentResult.Target.Name)
 			}
 
-			log.Info("txResultsToMaster: Successfully transmitted results for item: ", currentResult.Target.Name)
 			// finished handling, prepare for next item
 			currentResult = disttrace.TraceResult{}
 			workReceived = false
