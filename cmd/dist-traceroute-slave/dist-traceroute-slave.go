@@ -21,9 +21,6 @@ var tracePollerProcRunning = make(chan bool, 1)
 
 var doExit = false
 
-// TODO split logging in normal and debug
-// TODO slaves need names and shared secrets with master
-
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
 func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
 	var result = disttrace.TraceResult{}
@@ -31,7 +28,6 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	result.DateTime = time.Now()
 	result.Target = target
 
-	//TODO targetID not unique over time, concurrent runs will have same id -> bad as log reference
 	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'\n", targetID, target.Name)
 
 	// generate fake measurements during development
@@ -68,7 +64,6 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	res, err := tracert.Traceroute(target.Address, &opts, c)
 	if err != nil {
 		log.Warnf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", targetID, target.Name, err)
-		// TODO permanently broken targets to be removed from config?
 		return
 	}
 
@@ -314,10 +309,8 @@ func main() {
 		disttrace.PrintSlaveUsageAndExit(fSet, true)
 	}
 
-	// TODO init function for structs to avoid nil fields?
 	// read configuration from master server
-	pCfg := new(disttrace.GenericConfig)
-	pCfg.SlaveConfig = new(disttrace.SlaveConfig)
+	pCfg := &disttrace.GenericConfig{SlaveConfig: &disttrace.SlaveConfig{}}
 	ppCfg := &pCfg
 
 	log.Info("Main: Launching config poller process...")
