@@ -73,7 +73,7 @@ func PrintMasterUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
 	}
 }
 
-// PrintSlaveUsage prints usage instructions for cmdline arguments
+// PrintSlaveUsageAndExit prints usage instructions for cmdline arguments
 func PrintSlaveUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
 
 	printUsage(fSet)
