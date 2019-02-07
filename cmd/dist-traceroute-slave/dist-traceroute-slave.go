@@ -13,21 +13,48 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// TODO prohibit concurrent measurements for same targets
-
+// mutexes for states of goroutines
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
 
+var measurementRunning = make(map[uuid.UUID]bool)
+var measurementRunningMapLock = sync.Mutex{}
+
+// shall we exit?
 var doExit = false
 
+// debug mode set as cmdline argument?
 var debugMode = false
+
+// sets measurement as finished in
+func setMeasurementFinished(targetID uuid.UUID) {
+	measurementRunningMapLock.Lock()
+	delete(measurementRunning, targetID)
+	measurementRunningMapLock.Unlock()
+}
 
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
 func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult, txBufferSize *int32) {
+
+	// Is another measurement for this target already running?
+	measurementRunningMapLock.Lock()
+	if measurementRunning[targetID] == true {
+		log.Infof("runMeasurement[%s]: Another measurement for target '%v' is already running, not measuring...", targetID, target.Name)
+		measurementRunningMapLock.Unlock()
+		return
+	}
+
+	// set as running and ensure to remove again
+	measurementRunning[targetID] = true
+	measurementRunningMapLock.Unlock()
+	defer setMeasurementFinished(targetID)
+
+	// init results struct
 	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
