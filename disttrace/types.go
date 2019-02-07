@@ -36,7 +36,7 @@ type SlaveCredentials struct {
 // TraceTarget contains information about a single dist-traceroute target
 type TraceTarget struct {
 	Name    string `valid:"alphanum,	required"`
-	Address string `valid:"ipv4,		required"`
+	Address string `valid:"host,		required"`
 }
 
 // TraceResult holds all relevant information of a single traceroute run

@@ -70,7 +70,7 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 
 		// is it time to run?
 		if nextTime.Before(time.Now()) {
-			log.Debug("configPoller: Checking for new configuration server...")
+			log.Debug("configPoller: Checking for new configuration...")
 
 			pNewCfg := new(GenericConfig)
 			pNewCfg.SlaveConfig = new(SlaveConfig)
