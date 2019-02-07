@@ -16,6 +16,10 @@ import (
 	"time"
 )
 
+// TODO bad trace "Checking for new configuration server..."
+// TODO Validation of target ... in received config failed. Error: Address: google.at does not validate as ipv4"
+// TODO trace tx Queue size on slave
+
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
 
@@ -28,7 +32,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	result.DateTime = time.Now()
 	result.Target = target
 
-	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'\n", targetID, target.Name)
+	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'", targetID, target.Name)
 
 	// generate fake measurements during development
 	result.HopCount = 3
@@ -48,7 +52,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 		},
 	}
 	txBuffer <- result
-	log.Debugf("runMeasurement[%v]: Finished measurement for target '%v'\n", targetID, target.Name)
+	log.Debugf("runMeasurement[%v]: Finished measurement for target '%v'", targetID, target.Name)
 	return
 
 	// need to supply chan with sufficient buffer, not used
@@ -63,16 +67,16 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	// do measurement
 	res, err := tracert.Traceroute(target.Address, &opts, c)
 	if err != nil {
-		log.Warnf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v\n", targetID, target.Name, err)
+		log.Warnf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v", targetID, target.Name, err)
 		return
 	}
 
 	if len(res.Hops) == 0 {
-		log.Warnf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false\n", targetID, target.Name)
+		log.Warnf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false", targetID, target.Name)
 		result.Success = false
 
 	} else {
-		log.Infof("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v\n",
+		log.Infof("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v",
 			targetID, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
@@ -149,7 +153,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 				goto endWork
 			}
 
-			log.Debugf("txResultsToMaster: Transmitting... \n%s", resultJSON)
+			log.Debugf("txResultsToMaster: Transmitting, Content: %s", resultJSON)
 
 			// get current config
 			cfg := **ppCfg
@@ -192,7 +196,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 					trace = string(httpRespBody)
 				}
 
-				log.Warnf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v\n", trace, err)
+				log.Warnf("txResultsToMaster: Can't parse body '%v' (first 100 char), Error: %v", trace, err)
 				workErr = err
 				goto endWork
 			}
@@ -261,7 +265,7 @@ func tracePoller(txBuffer chan disttrace.TraceResult, ppCfg **disttrace.GenericC
 
 			// loop through configured targets
 			for i, target := range tempCfgTargets {
-				log.Infof("tracePoller: Running measurement proc [%v] for element '%v'\n", i, target.Name)
+				log.Infof("tracePoller: Running measurement proc [%v] for element '%v'", i, target.Name)
 				go runMeasurement(i, target, tempCfg, txBuffer)
 			}
 
