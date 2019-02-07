@@ -13,12 +13,12 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"sync/atomic"
 	"time"
 )
 
-// TODO bad trace "Checking for new configuration server..."
-// TODO Validation of target ... in received config failed. Error: Address: google.at does not validate as ipv4"
-// TODO trace tx Queue size on slave
+// TODO generate fake results in debug mode
+// TODO prohibit concurrent measurements for same targets
 
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
@@ -26,7 +26,7 @@ var tracePollerProcRunning = make(chan bool, 1)
 var doExit = false
 
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
-func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult) {
+func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult, txBufferSize *int32) {
 	var result = disttrace.TraceResult{}
 	result.ID = uuid.New()
 	result.DateTime = time.Now()
@@ -34,26 +34,27 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 
 	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'", targetID, target.Name)
 
-	// generate fake measurements during development
-	result.HopCount = 3
-	result.Success = true
-	dur1, _ := time.ParseDuration("100ms")
-	dur2, _ := time.ParseDuration("200ms")
-	dur3, _ := time.ParseDuration("300ms")
-	result.Hops = []tracert.TracerouteHop{
-		tracert.TracerouteHop{
-			Success: true, Address: [4]byte{1, 2, 3, 4}, Host: "host1.at", N: 1, ElapsedTime: dur1, TTL: 1,
-		},
-		tracert.TracerouteHop{
-			Success: true, Address: [4]byte{1, 2, 2, 1}, Host: "host2.at", N: 2, ElapsedTime: dur2, TTL: 2,
-		},
-		tracert.TracerouteHop{
-			Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
-		},
-	}
-	txBuffer <- result
-	log.Debugf("runMeasurement[%v]: Finished measurement for target '%v'", targetID, target.Name)
-	return
+	// // generate fake measurements during development
+	// result.HopCount = 3
+	// result.Success = true
+	// dur1, _ := time.ParseDuration("100ms")
+	// dur2, _ := time.ParseDuration("200ms")
+	// dur3, _ := time.ParseDuration("300ms")
+	// result.Hops = []tracert.TracerouteHop{
+	// 	tracert.TracerouteHop{
+	// 		Success: true, Address: [4]byte{1, 2, 3, 4}, Host: "host1.at", N: 1, ElapsedTime: dur1, TTL: 1,
+	// 	},
+	// 	tracert.TracerouteHop{
+	// 		Success: true, Address: [4]byte{1, 2, 2, 1}, Host: "host2.at", N: 2, ElapsedTime: dur2, TTL: 2,
+	// 	},
+	// 	tracert.TracerouteHop{
+	// 		Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
+	// 	},
+	// }
+	// txBuffer <- result
+	// atomic.AddInt32(txBufferSize, 1)
+	// log.Debugf("runMeasurement[%v]: Finished measurement for target '%v'", targetID, target.Name)
+	// return
 
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.MaxHops + 1))
@@ -87,12 +88,17 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	result.Hops = res.Hops
 	result.HopCount = len(res.Hops)
 
-	txBuffer <- result
+	select {
+	case txBuffer <- result:
+		atomic.AddInt32(txBufferSize, 1)
+	default:
+		log.Warnf("Couldn't add result for '%v' to queue (current queue size: %v), result discarded. Possibly transmission to master stalled?", result.Target.Name, *txBufferSize)
+	}
 	return
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.GenericConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.GenericConfig) {
 
 	// lock mutex
 	txProcRunning <- true
@@ -123,7 +129,8 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 		if !workReceived {
 			select {
 			case traceRes := <-buf:
-				log.Debug("txResultsToMaster: Received workload:", traceRes.Target.Name)
+				atomic.AddInt32(bufSize, -1)
+				log.Debugf("txResultsToMaster: Received workload: '%v', remaining items in queue: %v", traceRes.Target.Name, *bufSize)
 				currentResult = traceRes
 				workReceived = true
 			default:
@@ -235,7 +242,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, slaveCreds disttrace.Slav
 }
 
 // tracePoller runs every minute and creates measurement processes for every target
-func tracePoller(txBuffer chan disttrace.TraceResult, ppCfg **disttrace.GenericConfig) {
+func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg **disttrace.GenericConfig) {
 
 	// lock mutex
 	tracePollerProcRunning <- true
@@ -266,7 +273,7 @@ func tracePoller(txBuffer chan disttrace.TraceResult, ppCfg **disttrace.GenericC
 			// loop through configured targets
 			for i, target := range tempCfgTargets {
 				log.Infof("tracePoller: Running measurement proc [%v] for element '%v'", i, target.Name)
-				go runMeasurement(i, target, tempCfg, txBuffer)
+				go runMeasurement(i, target, tempCfg, txBuffer, txBufferSize)
 			}
 
 			// run again on next full minute
@@ -288,6 +295,7 @@ func main() {
 
 	// setup inter-proc communication channels
 	var txSendBuffer = make(chan disttrace.TraceResult, 100)
+	var txSendBufferCnt = new(int32)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
@@ -321,10 +329,10 @@ func main() {
 	go disttrace.SlaveConfigPoller(masterHost, masterPort, slaveCreds, ppCfg)
 
 	log.Info("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, slaveCreds, ppCfg)
+	go txResultsToMaster(txSendBuffer, txSendBufferCnt, slaveCreds, ppCfg)
 
 	log.Info("Main: Launching trace poller process...")
-	go tracePoller(txSendBuffer, ppCfg)
+	go tracePoller(txSendBuffer, txSendBufferCnt, ppCfg)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")
