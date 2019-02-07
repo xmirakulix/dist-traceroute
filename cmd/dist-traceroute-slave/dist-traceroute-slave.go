@@ -17,13 +17,14 @@ import (
 	"time"
 )
 
-// TODO generate fake results in debug mode
 // TODO prohibit concurrent measurements for same targets
 
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
 
 var doExit = false
+
+var debugMode = false
 
 // runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
 func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult, txBufferSize *int32) {
@@ -34,27 +35,44 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 
 	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'", targetID, target.Name)
 
-	// // generate fake measurements during development
-	// result.HopCount = 3
-	// result.Success = true
-	// dur1, _ := time.ParseDuration("100ms")
-	// dur2, _ := time.ParseDuration("200ms")
-	// dur3, _ := time.ParseDuration("300ms")
-	// result.Hops = []tracert.TracerouteHop{
-	// 	tracert.TracerouteHop{
-	// 		Success: true, Address: [4]byte{1, 2, 3, 4}, Host: "host1.at", N: 1, ElapsedTime: dur1, TTL: 1,
-	// 	},
-	// 	tracert.TracerouteHop{
-	// 		Success: true, Address: [4]byte{1, 2, 2, 1}, Host: "host2.at", N: 2, ElapsedTime: dur2, TTL: 2,
-	// 	},
-	// 	tracert.TracerouteHop{
-	// 		Success: true, Address: [4]byte{1, 2, 2, 3}, Host: "host3.at", N: 3, ElapsedTime: dur3, TTL: 3,
-	// 	},
-	// }
-	// txBuffer <- result
-	// atomic.AddInt32(txBufferSize, 1)
-	// log.Debugf("runMeasurement[%v]: Finished measurement for target '%v'", targetID, target.Name)
-	// return
+	// shall we create fake results?
+	if debugMode {
+		jsonStr := "{" +
+			"\"Creds\":{\"Name\":\"slave\",\"Password\":\"123\"}," +
+			"\"ID\":\"d9bbc544-eabe-4536-a9ed-ec6cbdaaedb0\"," +
+			"\"DateTime\":\"2019-02-07T21:06:10.803086+01:00\"," +
+			"\"Target\":{\"Name\":\"Google\",\"Address\":\"www.google.at\"}," +
+			"\"Success\":true," +
+			"\"HopCount\":17," +
+			"\"Hops\":[" +
+			"	{\"Success\":true,\"Address\":[192,168,1,1],\"Host\":\"modem.home.\",\"N\":52,\"ElapsedTime\":2040972,\"TTL\":1}," +
+			"	{\"Success\":true,\"Address\":[193,9,252,201],\"Host\":\"\",\"N\":52,\"ElapsedTime\":10509652,\"TTL\":2}," +
+			"	{\"Success\":true,\"Address\":[193,9,252,241],\"Host\":\"wixrou8.mrsn.at.\",\"N\":52,\"ElapsedTime\":7861033,\"TTL\":3}," +
+			"	{\"Success\":true,\"Address\":[185,208,12,5],\"Host\":\"\",\"N\":52,\"ElapsedTime\":21188503,\"TTL\":4}," +
+			"	{\"Success\":true,\"Address\":[92,60,0,44],\"Host\":\"ae100-0-r01.inx.vie.nextlayer.net.\",\"N\":52,\"ElapsedTime\":16633831,\"TTL\":5}," +
+			"	{\"Success\":true,\"Address\":[92,60,0,154],\"Host\":\"ae1-0-r11.inx.vie.nextlayer.net.\",\"N\":52,\"ElapsedTime\":68627777,\"TTL\":6}," +
+			"	{\"Success\":true,\"Address\":[92,60,1,233],\"Host\":\"ae2-0-r60.inx.vie.nextlayer.net.\",\"N\":52,\"ElapsedTime\":9347528,\"TTL\":7}," +
+			"	{\"Success\":true,\"Address\":[92,60,0,237],\"Host\":\"ae1-0-r60.inx.fra.nextlayer.net.\",\"N\":52,\"ElapsedTime\":20861397,\"TTL\":8}," +
+			"	{\"Success\":true,\"Address\":[92,60,6,18],\"Host\":\"\",\"N\":52,\"ElapsedTime\":20969066,\"TTL\":9}," +
+			"	{\"Success\":true,\"Address\":[108,170,252,19],\"Host\":\"\",\"N\":52,\"ElapsedTime\":23301858,\"TTL\":10}," +
+			"	{\"Success\":true,\"Address\":[209,85,241,231],\"Host\":\"\",\"N\":52,\"ElapsedTime\":21846962,\"TTL\":11}," +
+			"	{\"Success\":true,\"Address\":[216,239,56,131],\"Host\":\"\",\"N\":52,\"ElapsedTime\":29712560,\"TTL\":12}," +
+			"	{\"Success\":true,\"Address\":[172,253,50,111],\"Host\":\"\",\"N\":52,\"ElapsedTime\":35513459,\"TTL\":13}," +
+			"	{\"Success\":true,\"Address\":[108,170,225,179],\"Host\":\"\",\"N\":52,\"ElapsedTime\":34569087,\"TTL\":14}," +
+			"	{\"Success\":true,\"Address\":[108,170,253,49],\"Host\":\"\",\"N\":52,\"ElapsedTime\":39223782,\"TTL\":15}," +
+			"	{\"Success\":true,\"Address\":[209,85,245,203],\"Host\":\"\",\"N\":52,\"ElapsedTime\":43379004,\"TTL\":16}," +
+			"	{\"Success\":true,\"Address\":[172,217,19,67],\"Host\":\"ham02s17-in-f3.1e100.net.\",\"N\":52,\"ElapsedTime\":43045659,\"TTL\":17}" +
+			"	]" +
+			"}"
+
+		json.Unmarshal([]byte(jsonStr), &result)
+		result.Target.Name = target.Name
+		result.Target.Address = target.Address
+		txBuffer <- result
+		atomic.AddInt32(txBufferSize, 1)
+		log.Debugf("runMeasurement[%v]: returning fake measurement for target '%v'", targetID, result.Target.Name)
+		return
+	}
 
 	// need to supply chan with sufficient buffer, not used
 	c := make(chan tracert.TracerouteHop, (cfg.MaxHops + 1))
@@ -309,6 +327,7 @@ func main() {
 	fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
 	fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
 	fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
+	fSet.BoolVar(&debugMode, "zDebugResults", false, "Generate fake results, e.g. when run without root permissions")
 	fSet.Parse(os.Args[1:])
 
 	slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
