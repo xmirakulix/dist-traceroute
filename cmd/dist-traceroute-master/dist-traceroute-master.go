@@ -86,7 +86,7 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		log.Info("httpRxResultHandler: Received results for target: ", result.Target.Name)
 
-		if ok, err := valid.ValidateStruct(result); !ok || err != nil {
+		if ok, err := disttrace.ValidateTraceResult(result); !ok || err != nil {
 			log.Warn("httpRxResultHandler: Result validation failed, Error: ", err)
 			http.Error(writer, "Result validation failed: "+err.Error(), http.StatusBadRequest)
 			return

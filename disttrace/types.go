@@ -1,7 +1,9 @@
 package disttrace
 
 import (
+	"errors"
 	tracert "github.com/aeden/traceroute"
+	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
 	"time"
 )
@@ -41,13 +43,13 @@ type TraceTarget struct {
 
 // TraceResult holds all relevant information of a single traceroute run
 type TraceResult struct {
-	Creds    SlaveCredentials        `valid:"				required"`
-	ID       uuid.UUID               `valid:"				required"`
-	DateTime time.Time               `valid:"				required"`
-	Target   TraceTarget             `valid:"		 		required"`
-	Success  bool                    `valid:"				required"`
-	HopCount int                     `valid:"int,		 	required, 	range(1|100)"`
-	Hops     []tracert.TracerouteHop `valid:"				required"`
+	Creds    SlaveCredentials        `valid:"		required"`
+	ID       uuid.UUID               `valid:"-"`
+	DateTime time.Time               `valid:"-"`
+	Target   TraceTarget             `valid:"		required"`
+	Success  bool                    `valid:"-"`
+	HopCount int                     `valid:"int,	required, 	range(1|100)"`
+	Hops     []tracert.TracerouteHop `valid:"-"`
 }
 
 // SubmitResult holds information about success or failure of submission of result(s)
@@ -55,4 +57,27 @@ type SubmitResult struct {
 	Success       bool
 	Error         string
 	RetryPossible bool
+}
+
+// ValidateTraceResult validates contents of a TraceResult
+func ValidateTraceResult(res TraceResult) (bool, error) {
+
+	// check credentials and tracetargets
+	if ok, err := valid.ValidateStruct(res); !ok || err != nil {
+		return false, err
+	}
+
+	for _, hop := range res.Hops {
+		// check if IP is valid
+		if !valid.IsIP(hop.AddressString()) {
+			return false, errors.New("Invalid IP Address: " + hop.AddressString())
+		}
+
+		// check if hostname is valid if present
+		if hop.Host != "" && !valid.IsDNSName(hop.Host) {
+			return false, errors.New("Invalid IP Address: " + hop.AddressString())
+		}
+	}
+
+	return true, nil
 }
