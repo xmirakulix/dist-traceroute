@@ -15,6 +15,9 @@ import (
 	"time"
 )
 
+// TODO log results to seperate log
+// TODO add option to post results to elastic
+
 var httpProcQuitDone = make(chan bool, 1)
 
 // TODO https/TLS

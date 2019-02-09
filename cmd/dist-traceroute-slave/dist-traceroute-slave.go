@@ -18,6 +18,10 @@ import (
 	"time"
 )
 
+// TODO dont write logs to stdout
+// TODO cmdline argument for loglevel
+// TODO option to log to syslog
+
 // mutexes for states of goroutines
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
@@ -135,7 +139,8 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 
 	select {
 	case txBuffer <- result:
-		atomic.AddInt32(txBufferSize, 1)
+		queuesize := atomic.AddInt32(txBufferSize, 1)
+		log.Infof("runMeasurement[%v]: Added item '%v' to tx queue, new queue size: %v", targetID, target.Name, queuesize)
 	default:
 		log.Warnf("Couldn't add result for '%v' to queue (current queue size: %v), result discarded. Possibly transmission to master stalled?", result.Target.Name, *txBufferSize)
 	}
