@@ -19,7 +19,8 @@ import (
 // TOOD write access log
 // TODO add option to post results to elastic
 // TODO https/TLS
-// TODO make targets path configurable
+// TODO make targets config file path configurable
+// TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
 
 // logging global
 var log = logrus.New()
@@ -245,7 +246,7 @@ func main() {
 		fSet.SetOutput(outBuf)
 		fSet.StringVar(&configNameAndPath, "config", "./dt-slaves.json", "Set config `filename`")
 		fSet.StringVar(&logPathAndName, "log", "./dt-master.log", "Logfile location `/path/to/file`")
-		fSet.StringVar(&logLevel, "loglevel", "", "Specify loglevel, one of `warn, info, debug`")
+		fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 

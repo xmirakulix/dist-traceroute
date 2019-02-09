@@ -18,7 +18,6 @@ import (
 	"time"
 )
 
-// TODO dont write logs to stdout
 // TODO option to log to syslog
 
 // logging global
