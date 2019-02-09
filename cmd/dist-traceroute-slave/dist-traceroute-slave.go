@@ -188,6 +188,8 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 				currentResult = traceRes
 				workReceived = true
 			default:
+				// pause between checks
+				time.Sleep(1 * time.Second)
 			}
 		} else {
 			log.Debug("txResultsToMaster: not checking for new work, not done yet...")
@@ -290,8 +292,6 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 			workErrCount = 0
 			workErr = *new(error)
 		}
-		// pause between work
-		time.Sleep(1 * time.Second)
 	}
 }
 
