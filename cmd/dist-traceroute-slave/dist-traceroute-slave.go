@@ -367,7 +367,7 @@ func main() {
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
+		slaveCreds = disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
 		okCreds, _ := valid.ValidateStruct(slaveCreds)
 		var errLog error
 		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
