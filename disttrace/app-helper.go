@@ -94,3 +94,9 @@ func PrintSlaveUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
 		os.Exit(0)
 	}
 }
+
+// SetLogLevel sets the logging detail level
+func SetLogLevel(logLevel string) {
+	ll, _ := log.ParseLevel(logLevel)
+	log.SetLevel(ll)
+}

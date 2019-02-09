@@ -19,7 +19,6 @@ import (
 )
 
 // TODO dont write logs to stdout
-// TODO cmdline argument for loglevel
 // TODO option to log to syslog
 
 // mutexes for states of goroutines
@@ -351,7 +350,9 @@ func main() {
 	disttrace.ListenForOSSignals()
 
 	// parse cmdline arguments
-	var masterHost, masterPort, slaveName, slavePwd string
+	var masterHost, masterPort, slaveName, slavePwd, logLevel string
+	var sendHelp bool
+
 	fSet := flag.FlagSet{}
 	outBuf := bytes.NewBuffer([]byte{})
 	fSet.SetOutput(outBuf)
@@ -359,7 +360,9 @@ func main() {
 	fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
 	fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
 	fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
+	fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 	fSet.BoolVar(&debugMode, "zDebugResults", false, "Generate fake results, e.g. when run without root permissions")
+	fSet.BoolVar(&sendHelp, "help", false, "display this message")
 	fSet.Parse(os.Args[1:])
 
 	slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
@@ -370,7 +373,14 @@ func main() {
 	case !success || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
 		log.Warn("Error: No or invalid arguments, can't run, Bye.")
 		disttrace.PrintSlaveUsageAndExit(fSet, true)
+	case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
+		disttrace.PrintMasterUsageAndExit(fSet, false)
+	case sendHelp:
+		disttrace.PrintSlaveUsageAndExit(fSet, true)
 	}
+
+	// set the loglevel to specified level
+	disttrace.SetLogLevel(logLevel)
 
 	// read configuration from master server
 	pCfg := &disttrace.GenericConfig{SlaveConfig: &disttrace.SlaveConfig{}}

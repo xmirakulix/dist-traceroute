@@ -174,7 +174,7 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
 		}
 
-		log.Debug("httpTxConfigHandler: Replying configuration.")
+		log.Debugf("httpTxConfigHandler: Replying configuration for %v targets", len(slaveConf.Targets))
 		return
 	}
 }
@@ -238,10 +238,13 @@ func main() {
 	// parse cmdline arguments
 	var configFileName string
 	var sendHelp bool
+	var logLevel string
+
 	fSet := flag.FlagSet{}
 	outBuf := bytes.NewBuffer([]byte{})
 	fSet.SetOutput(outBuf)
 	fSet.StringVar(&configFileName, "config", "dt-slaves.json", "Set config `filename`")
+	fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 	fSet.BoolVar(&sendHelp, "help", false, "display this message")
 	fSet.Parse(os.Args[1:])
 
@@ -250,9 +253,14 @@ func main() {
 	case valid.SafeFileName(configFileName) != configFileName:
 		log.Warn("Error: No or invalid commandline arguments, can't run, Bye.")
 		disttrace.PrintMasterUsageAndExit(fSet, true)
+	case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
+		disttrace.PrintMasterUsageAndExit(fSet, false)
 	case sendHelp:
 		disttrace.PrintMasterUsageAndExit(fSet, false)
 	}
+
+	// set the loglevel to specified level
+	disttrace.SetLogLevel(logLevel)
 
 	// create master configuration
 	var pCfg = new(disttrace.GenericConfig)
