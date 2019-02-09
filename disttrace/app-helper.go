@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"os"
@@ -14,13 +13,17 @@ import (
 	"syscall"
 )
 
+import (
+	valid "github.com/asaskevich/govalidator"
+)
+
 // OSSigReceived mutex to show OS signal was received
 var OSSigReceived = make(chan bool, 1)
 
 // shall we exit?
 var doExit = false
 
-// logging global
+// global logger
 var log = logrus.New()
 
 // ListenForOSSignals registers for OS signals and waits for them

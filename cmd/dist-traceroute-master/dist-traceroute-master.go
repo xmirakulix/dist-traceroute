@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	valid "github.com/asaskevich/govalidator"
 	"github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io"
@@ -13,6 +12,11 @@ import (
 	"net/http"
 	"os"
 	"time"
+)
+
+import (
+	valid "github.com/asaskevich/govalidator"
+	ghandlers "github.com/gorilla/handlers"
 )
 
 // TODO log results to seperate log
@@ -23,7 +27,7 @@ import (
 // TODO make targets config file path configurable
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
 
-// logging global
+// global logger
 var log = logrus.New()
 
 var httpProcQuitDone = make(chan bool, 1)
@@ -189,24 +193,39 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpServer(ppCfg **disttrace.GenericConfig) {
+func writeAccessLog(handler http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log.Printf("%s %s %s\n", r.RemoteAddr, r.Method, r.URL)
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func httpServer(ppCfg **disttrace.GenericConfig, accessLog string) {
+	var err error
 
 	log.Info("httpServer: Start...")
 
 	disttrace.WaitForValidConfig("httpServer", "master", ppCfg)
 
+	var accessWriter io.Writer
+	if accessWriter, err = os.OpenFile(accessLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
+		log.Panicf("httpServer: Can't open access log '%v', Error: %v", accessLog, err)
+	}
+
+	router := http.NewServeMux()
 	srv := &http.Server{
-		Addr: ":8990",
+		Addr:    ":8990",
+		Handler: ghandlers.CombinedLoggingHandler(accessWriter, router),
 	}
 
 	// handle results from slaves
-	http.HandleFunc("/results/", httpRxResultHandler(ppCfg))
+	router.HandleFunc("/results/", httpRxResultHandler(ppCfg))
 
 	// handle config requests from slaves
-	http.HandleFunc("/config/", httpTxConfigHandler(ppCfg))
+	router.HandleFunc("/config/", httpTxConfigHandler(ppCfg))
 
 	// handle everything else
-	http.HandleFunc("/", httpDefaultHandler(ppCfg))
+	router.HandleFunc("/", httpDefaultHandler(ppCfg))
 
 	// start server...
 	go func() {
@@ -291,7 +310,7 @@ func main() {
 	go disttrace.MasterConfigPoller(configNameAndPath, ppCfg)
 
 	log.Info("Main: Launching http server process...")
-	go httpServer(ppCfg)
+	go httpServer(ppCfg, "dt-access.log")
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")

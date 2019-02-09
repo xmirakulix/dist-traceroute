@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	tracert "github.com/aeden/traceroute"
-	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
@@ -18,9 +16,15 @@ import (
 	"time"
 )
 
-// TODO option to log to syslog
+import (
+	tracert "github.com/aeden/traceroute"
+	valid "github.com/asaskevich/govalidator"
+)
 
-// logging global
+// TODO option to log to syslog
+// TODO set http user agent
+
+// global logger
 var log = logrus.New()
 
 // mutexes for states of goroutines

@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	valid "github.com/asaskevich/govalidator"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"time"
+)
+
+import (
+	valid "github.com/asaskevich/govalidator"
 )
 
 type pollerConfig struct {

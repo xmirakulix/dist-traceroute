@@ -2,10 +2,13 @@ package disttrace
 
 import (
 	"errors"
-	tracert "github.com/aeden/traceroute"
-	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
 	"time"
+)
+
+import (
+	tracert "github.com/aeden/traceroute"
+	valid "github.com/asaskevich/govalidator"
 )
 
 // GenericConfig holds a master or slave configuration
