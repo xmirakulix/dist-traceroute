@@ -281,6 +281,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 		if workErr != nil {
 			workErrCount++
 			log.Warnf("txResultsToMaster: An error occurred when handling workitem '%v'. Will retry, retrycount: %v/%v...", currentResult.Target.Name, workErrCount, numMaxRetries)
+			time.Sleep(10 * time.Second)
 		}
 		if workErrCount >= numMaxRetries {
 			log.Warnf("txResultsToMaster: Too many retries reached for workitem '%v'. Discarding item and continuing...", currentResult.Target.Name)
