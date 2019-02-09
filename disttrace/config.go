@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	valid "github.com/asaskevich/govalidator"
-	log "github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
 	"os"
@@ -19,7 +18,7 @@ type pollerConfig struct {
 }
 
 type masterPollerConfig struct {
-	FileName string
+	FilePath string
 }
 
 type slavePollerConfig struct {
@@ -32,9 +31,9 @@ type slavePollerConfig struct {
 var ConfigPollerProcRunning = make(chan bool, 1)
 
 // MasterConfigPoller runs as process, checks master configuration file(s) periodically
-func MasterConfigPoller(fileName string, ppCfg **GenericConfig) {
+func MasterConfigPoller(filePath string, ppCfg **GenericConfig) {
 
-	mpc := masterPollerConfig{FileName: fileName}
+	mpc := masterPollerConfig{FilePath: filePath}
 	pc := pollerConfig{Type: "master", masterPollerConfig: &mpc}
 
 	configPoller(pc, ppCfg)
@@ -81,7 +80,7 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 			if pollerCfg.Type == "slave" {
 				err = getConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.SlaveCreds, ppNewCfg)
 			} else {
-				err = getConfigFromFile(pollerCfg.FileName, ppNewCfg)
+				err = getConfigFromFile(pollerCfg.FilePath, ppNewCfg)
 			}
 
 			if err != nil {
@@ -114,7 +113,7 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 }
 
 // getConfigFromFile reads master configuration from file
-func getConfigFromFile(fileName string, ppCfg **GenericConfig) error {
+func getConfigFromFile(filePath string, ppCfg **GenericConfig) error {
 
 	// create new empty config
 	var newCfg = MasterConfig{}
@@ -122,23 +121,23 @@ func getConfigFromFile(fileName string, ppCfg **GenericConfig) error {
 	*pCfg.MasterConfig = newCfg
 
 	// open file
-	jsonFile, err := os.Open(fileName)
+	jsonFile, err := os.Open(filePath)
 	if err != nil {
-		log.Fatalf("getConfigFromFile: Couldn't open file '%v', Error: %v", fileName, err)
+		log.Fatalf("getConfigFromFile: Couldn't open file '%v', Error: %v", filePath, err)
 	}
 	defer jsonFile.Close()
 
 	byteValue, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
-		log.Fatalf("getConfigFromFile: Couldn't read from file '%v', Error: %v", fileName, err)
+		log.Fatalf("getConfigFromFile: Couldn't read from file '%v', Error: %v", filePath, err)
 	}
 
 	err = json.Unmarshal(byteValue, &newCfg)
 	if err != nil {
-		log.Fatalf("getConfigFromFile: Couldn't unmarshal content of file '%v', Error: %v", fileName, err)
+		log.Fatalf("getConfigFromFile: Couldn't unmarshal content of file '%v', Error: %v", filePath, err)
 	}
 
-	log.Debugf("getConfigFromFile: Got config from file '%v', number of configured slaves: %v", fileName, len(newCfg.Slaves))
+	log.Debugf("getConfigFromFile: Got config from file '%v', number of configured slaves: %v", filePath, len(newCfg.Slaves))
 	*pCfg.MasterConfig = newCfg
 	return nil
 }

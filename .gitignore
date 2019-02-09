@@ -9,4 +9,5 @@
 
 # get rid of:
 *.db
+*.log
 .DS_Store

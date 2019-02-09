@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	valid "github.com/asaskevich/govalidator"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io"
 	"io/ioutil"
@@ -16,11 +16,15 @@ import (
 )
 
 // TODO log results to seperate log
+// TOOD write access log
 // TODO add option to post results to elastic
+// TODO https/TLS
+// TODO make targets path configurable
+
+// logging global
+var log = logrus.New()
 
 var httpProcQuitDone = make(chan bool, 1)
-
-// TODO https/TLS
 
 func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
 
@@ -229,41 +233,51 @@ func httpServer(ppCfg **disttrace.GenericConfig) {
 
 func main() {
 
+	// parse cmdline arguments
+	var configNameAndPath, logLevel, logPathAndName string
+
+	// check cmdline args
+	{
+		var sendHelp bool
+
+		fSet := flag.FlagSet{}
+		outBuf := bytes.NewBuffer([]byte{})
+		fSet.SetOutput(outBuf)
+		fSet.StringVar(&configNameAndPath, "config", "./dt-slaves.json", "Set config `filename`")
+		fSet.StringVar(&logPathAndName, "log", "./dt-master.log", "Logfile location `/path/to/file`")
+		fSet.StringVar(&logLevel, "loglevel", "", "Specify loglevel, one of `warn, info, debug`")
+		fSet.BoolVar(&sendHelp, "help", false, "display this message")
+		fSet.Parse(os.Args[1:])
+
+		var errCfg, errLog error
+		configNameAndPath, errCfg = disttrace.CleanAndCheckFileNameAndPath(configNameAndPath)
+		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
+
+		// valid cmdline arguments or exit
+		switch {
+		case errCfg != nil:
+			log.Warn("Error: Invalid config file name, can't run, Bye.")
+			disttrace.PrintMasterUsageAndExit(fSet, true)
+		case errLog != nil:
+			log.Warn("Error: Invalid log path specified, can't run, Bye.")
+			disttrace.PrintMasterUsageAndExit(fSet, true)
+		case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
+			log.Warn("Error: Invalid loglevel specified, can't run, Bye.")
+			disttrace.PrintMasterUsageAndExit(fSet, true)
+		case sendHelp:
+			disttrace.PrintMasterUsageAndExit(fSet, false)
+		}
+	}
+
 	// setup logging
-	log.SetLevel(log.DebugLevel)
+	disttrace.SetLogOptions(log, logPathAndName, logLevel)
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
+	disttrace.DebugPrintAllArguments(configNameAndPath, logPathAndName, logLevel)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
-
-	// parse cmdline arguments
-	var configFileName string
-	var sendHelp bool
-	var logLevel string
-
-	fSet := flag.FlagSet{}
-	outBuf := bytes.NewBuffer([]byte{})
-	fSet.SetOutput(outBuf)
-	fSet.StringVar(&configFileName, "config", "dt-slaves.json", "Set config `filename`")
-	fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
-	fSet.BoolVar(&sendHelp, "help", false, "display this message")
-	fSet.Parse(os.Args[1:])
-
-	// valid cmdline arguments or exit
-	switch {
-	case valid.SafeFileName(configFileName) != configFileName:
-		log.Warn("Error: No or invalid commandline arguments, can't run, Bye.")
-		disttrace.PrintMasterUsageAndExit(fSet, true)
-	case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
-		disttrace.PrintMasterUsageAndExit(fSet, false)
-	case sendHelp:
-		disttrace.PrintMasterUsageAndExit(fSet, false)
-	}
-
-	// set the loglevel to specified level
-	disttrace.SetLogLevel(logLevel)
 
 	// create master configuration
 	var pCfg = new(disttrace.GenericConfig)
@@ -271,7 +285,7 @@ func main() {
 	var ppCfg = &pCfg
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.MasterConfigPoller(configFileName, ppCfg)
+	go disttrace.MasterConfigPoller(configNameAndPath, ppCfg)
 
 	log.Info("Main: Launching http server process...")
 	go httpServer(ppCfg)

@@ -8,7 +8,7 @@ import (
 	tracert "github.com/aeden/traceroute"
 	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io/ioutil"
 	"net/http"
@@ -20,7 +20,9 @@ import (
 
 // TODO dont write logs to stdout
 // TODO option to log to syslog
-// TODO tranmission of results takes too long
+
+// logging global
+var log = logrus.New()
 
 // mutexes for states of goroutines
 var txProcRunning = make(chan bool, 1)
@@ -202,7 +204,6 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 		// work, work
 		if workReceived {
 			log.Debug("txResultsToMaster: Sending: ", currentResult.Target.Name)
-			time.Sleep(3 * time.Second)
 
 			// prepare data to be sent
 			currentResult.Creds = slaveCreds
@@ -340,51 +341,63 @@ func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg
 }
 
 func main() {
-	// setup logging
-	log.SetLevel(log.DebugLevel)
-
-	// let's Go! :)
-	log.Warn("Main: Starting...")
 
 	// setup inter-proc communication channels
 	var txSendBuffer = make(chan disttrace.TraceResult, 100)
 	var txSendBufferCnt = new(int32)
 
-	// setup listener for OS exit signals
-	disttrace.ListenForOSSignals()
-
 	// parse cmdline arguments
-	var masterHost, masterPort, slaveName, slavePwd, logLevel string
-	var sendHelp bool
+	var masterHost, masterPort, logLevel, logPathAndName string
+	var slaveCreds disttrace.SlaveCredentials
 
-	fSet := flag.FlagSet{}
-	outBuf := bytes.NewBuffer([]byte{})
-	fSet.SetOutput(outBuf)
-	fSet.StringVar(&masterHost, "master", "", "Set the `hostname`/IP of the master server")
-	fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
-	fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
-	fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
-	fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
-	fSet.BoolVar(&debugMode, "zDebugResults", false, "Generate fake results, e.g. when run without root permissions")
-	fSet.BoolVar(&sendHelp, "help", false, "display this message")
-	fSet.Parse(os.Args[1:])
+	// check cmdline args
+	{
+		var sendHelp bool
+		var slaveName, slavePwd string
 
-	slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
-	success, _ := valid.ValidateStruct(slaveCreds)
+		fSet := flag.FlagSet{}
+		outBuf := bytes.NewBuffer([]byte{})
+		fSet.SetOutput(outBuf)
+		fSet.StringVar(&masterHost, "master", "", "Set the `hostname`/IP of the master server")
+		fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
+		fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
+		fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
+		fSet.StringVar(&logPathAndName, "log", "./dt-slave.log", "Logfile location `/path/to/file`")
+		fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
+		fSet.BoolVar(&debugMode, "zDebugResults", false, "Generate fake results, e.g. when run without root permissions")
+		fSet.BoolVar(&sendHelp, "help", false, "display this message")
+		fSet.Parse(os.Args[1:])
 
-	// valid cmdline arguments or exit
-	switch {
-	case !success || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
-		log.Warn("Error: No or invalid arguments, can't run, Bye.")
-		disttrace.PrintSlaveUsageAndExit(fSet, true)
-	case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
-		disttrace.PrintMasterUsageAndExit(fSet, false)
-	case sendHelp:
-		disttrace.PrintSlaveUsageAndExit(fSet, true)
+		slaveCreds := disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
+		okCreds, _ := valid.ValidateStruct(slaveCreds)
+		var errLog error
+		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
+
+		// valid cmdline arguments or exit
+		switch {
+		case !okCreds || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
+			log.Warn("Error: No or invalid arguments for master, master-port or credentials, can't run, Bye.")
+			disttrace.PrintSlaveUsageAndExit(fSet, true)
+		case errLog != nil:
+			log.Warn("Error: Invalid log path specified, can't run, Bye.")
+			disttrace.PrintSlaveUsageAndExit(fSet, true)
+		case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
+			log.Warn("Error: Invalid loglevel specified, can't run, Bye.")
+			disttrace.PrintSlaveUsageAndExit(fSet, true)
+		case sendHelp:
+			disttrace.PrintSlaveUsageAndExit(fSet, true)
+		}
 	}
 
-	// set the loglevel to specified level
-	disttrace.SetLogLevel(logLevel)
+	// setup logging
+	disttrace.SetLogOptions(log, logPathAndName, logLevel)
+
+	// let's Go! :)
+	log.Warn("Main: Starting...")
+	disttrace.DebugPrintAllArguments(masterHost, masterPort, slaveCreds.Name, slaveCreds.Password, logPathAndName, logLevel)
+
+	// setup listener for OS exit signals
+	disttrace.ListenForOSSignals()
 
 	// read configuration from master server
 	pCfg := &disttrace.GenericConfig{SlaveConfig: &disttrace.SlaveConfig{}}

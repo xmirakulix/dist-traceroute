@@ -3,18 +3,25 @@ package disttrace
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
+	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 )
 
 // OSSigReceived mutex to show OS signal was received
 var OSSigReceived = make(chan bool, 1)
 
+// shall we exit?
 var doExit = false
+
+// logging global
+var log = logrus.New()
 
 // ListenForOSSignals registers for OS signals and waits for them
 func ListenForOSSignals() {
@@ -95,8 +102,51 @@ func PrintSlaveUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
 	}
 }
 
-// SetLogLevel sets the logging detail level
-func SetLogLevel(logLevel string) {
-	ll, _ := log.ParseLevel(logLevel)
-	log.SetLevel(ll)
+// SetLogOptions sets the logging detail level
+func SetLogOptions(logger *logrus.Logger, logPathAndName string, logLevel string) {
+	// use the same logger in disttrace package
+	log = logger
+
+	// open logfile or panic!
+	file, err := os.OpenFile(logPathAndName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err == nil {
+		logger.Out = file
+	} else {
+		logger.Out = os.Stdout
+		log.Panicf("SetLogOptions: Can't open file '%v' for write, Error: %v", logPathAndName, err)
+	}
+
+	// set loglevel
+	ll, _ := logrus.ParseLevel(logLevel)
+	logger.SetLevel(ll)
+
+}
+
+// CleanAndCheckFileNameAndPath validates a path and filename
+func CleanAndCheckFileNameAndPath(path string) (string, error) {
+
+	dir, file := filepath.Split(path)
+
+	dir, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+
+	if ok, _ := valid.IsFilePath(dir); !ok {
+		return "", errors.New("Invalid path: '" + dir + "'")
+	}
+
+	if valid.SafeFileName(file) != file {
+		return "", errors.New("Invalid filename: '" + file + "'")
+	}
+
+	return filepath.Join(dir, file), nil
+}
+
+// DebugPrintAllArguments prints all supplied arguments with their valie
+func DebugPrintAllArguments(args ...string) {
+	log.Debug("Supplied cmdline arguments:")
+	for _, arg := range args {
+		log.Debugf("    %v", arg)
+	}
 }
