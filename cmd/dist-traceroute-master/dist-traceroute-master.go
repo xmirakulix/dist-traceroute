@@ -16,6 +16,7 @@ import (
 )
 
 // TODO log results to seperate log
+// TODO write results to db for minimal stats on webinterface
 // TOOD write access log
 // TODO add option to post results to elastic
 // TODO https/TLS
@@ -75,8 +76,8 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 				RetryPossible: false,
 			}
 
-			responseJSON, err := json.Marshal(response)
-			if err != nil {
+			var responseJSON []byte
+			if responseJSON, err = json.Marshal(response); err != nil {
 				http.Error(writer, "Error: Couldn't marshal error response into JSON", http.StatusBadRequest)
 				log.Warn("httpRxResultHandler: Error: Couldn't marshal error response into JSON: ", err)
 				return
@@ -97,9 +98,9 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			result.Success, result.HopCount,
 		)
 
-		if ok, err := disttrace.ValidateTraceResult(result); !ok || err != nil {
-			log.Warn("httpRxResultHandler: Result validation failed, Error: ", err)
-			http.Error(writer, "Result validation failed: "+err.Error(), http.StatusBadRequest)
+		if ok, e := disttrace.ValidateTraceResult(result); !ok || e != nil {
+			log.Warn("httpRxResultHandler: Result validation failed, Error: ", e)
+			http.Error(writer, "Result validation failed: "+e.Error(), http.StatusBadRequest)
 			return
 		}
 
@@ -133,18 +134,19 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpTxConfigHandler: Received request for config, URL: ", req.URL)
 
+		var err error
+
 		// read request body
-		reqBody, err := ioutil.ReadAll(req.Body)
-		if err != nil {
+		var reqBody []byte
+		if reqBody, err = ioutil.ReadAll(req.Body); err != nil {
 			log.Warn("httpTxConfigHandler: Can't read request body, Error: ", err)
 			http.Error(writer, "Can't read request", http.StatusInternalServerError)
 			return
 		}
 
 		// parse JSON from request body
-		slaveCreds := disttrace.SlaveCredentials{}
-		err = json.Unmarshal(reqBody, &slaveCreds)
-		if err != nil {
+		var slaveCreds disttrace.SlaveCredentials
+		if err = json.Unmarshal(reqBody, &slaveCreds); err != nil {
 			log.Warn("httpTxConfigHandler: Can't unmarshal request body into slave creds, Error: ", err)
 			http.Error(writer, "Can't unmarshal request body", http.StatusBadRequest)
 			return
@@ -157,23 +159,23 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		// read config from disk
 		cfgFile := "dt-targets.json"
-		body, err := ioutil.ReadFile(cfgFile)
-		if err != nil {
+		var body []byte
+		if body, err = ioutil.ReadFile(cfgFile); err != nil {
 			http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Error: Couldn't read config file: ", err)
 			return
 		}
 
 		slaveConf := disttrace.SlaveConfig{}
-		err = json.Unmarshal(body, &slaveConf)
-		if err != nil {
+
+		if err = json.Unmarshal(body, &slaveConf); err != nil {
 			http.Error(writer, "Error: Can't unmarshal config", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Loaded config can't be unmarshalled, Error: ", err)
 		}
 
-		if ok, err := valid.ValidateStruct(slaveConf); !ok || err != nil {
+		if ok, e := valid.ValidateStruct(slaveConf); !ok || e != nil {
 			http.Error(writer, "Error: Loaded config is invalid", http.StatusInternalServerError)
-			log.Warn("httpTxConfigHandler: Loaded config is invalid, Error: ", err)
+			log.Warn("httpTxConfigHandler: Loaded config is invalid, Error: ", e)
 		}
 
 		// send config to slave
