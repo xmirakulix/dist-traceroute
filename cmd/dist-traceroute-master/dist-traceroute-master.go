@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"flag"
-	"github.com/sirupsen/logrus"
-	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -17,14 +15,15 @@ import (
 import (
 	valid "github.com/asaskevich/govalidator"
 	ghandlers "github.com/gorilla/handlers"
+	"github.com/sirupsen/logrus"
+	"github.com/xmirakulix/dist-traceroute/disttrace"
 )
 
 // TODO log results to seperate log
 // TODO write results to db for minimal stats on webinterface
-// TOOD write access log
 // TODO add option to post results to elastic
 // TODO https/TLS
-// TODO make targets config file path configurable
+// TODO make targets config file and access log path configurable
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
 
 // global logger
