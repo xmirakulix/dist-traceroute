@@ -52,7 +52,7 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Info("httpRxResultHandler: Received request results, URL: ", req.URL)
+		log.Debug("httpRxResultHandler: Received request results, URL: ", req.URL)
 
 		// init vars
 		result := disttrace.TraceResult{}
@@ -87,7 +87,10 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			return
 		}
 
-		log.Info("httpRxResultHandler: Received results for target: ", result.Target.Name)
+		log.Infof("httpRxResultHandler: Received results from slave '%v' for target '%v'. Success: %v, Hops: %v.",
+			result.Creds.Name, result.Target.Name,
+			result.Success, result.HopCount,
+		)
 
 		if ok, err := disttrace.ValidateTraceResult(result); !ok || err != nil {
 			log.Warn("httpRxResultHandler: Result validation failed, Error: ", err)
@@ -123,7 +126,7 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Info("httpTxConfigHandler: Received request for config, URL: ", req.URL)
+		log.Debug("httpTxConfigHandler: Received request for config, URL: ", req.URL)
 
 		// read request body
 		reqBody, err := ioutil.ReadAll(req.Body)
@@ -174,7 +177,7 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
 		}
 
-		log.Debugf("httpTxConfigHandler: Replying configuration for %v targets", len(slaveConf.Targets))
+		log.Infof("httpTxConfigHandler: Transmitting currently configured targets to slave '%v' for %v targets", slaveCreds.Name, len(slaveConf.Targets))
 		return
 	}
 }

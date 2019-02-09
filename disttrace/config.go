@@ -93,13 +93,13 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 
 				if string(newCfgJSON) != string(oldCfgJSON) {
 					// config changed
-					log.Infof("configPoller: Configuration changed, applying new configuration and going to sleep...")
+					log.Infof("configPoller: Application configuration changed, applying new configuration and going to sleep...")
 					pCfg := *ppCfg
 					*pCfg = **ppNewCfg
 
 				} else {
 					// no config change
-					log.Debug("configPoller: Configuration on didn't change, going to sleep...")
+					log.Debug("configPoller: Application configuration on didn't change, going to sleep...")
 				}
 			}
 

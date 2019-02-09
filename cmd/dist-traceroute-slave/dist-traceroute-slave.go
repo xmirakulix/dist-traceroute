@@ -20,6 +20,7 @@ import (
 
 // TODO dont write logs to stdout
 // TODO option to log to syslog
+// TODO tranmission of results takes too long
 
 // mutexes for states of goroutines
 var txProcRunning = make(chan bool, 1)
@@ -125,7 +126,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 		result.Success = false
 
 	} else {
-		log.Infof("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v",
+		log.Debugf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v",
 			targetID, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
@@ -139,7 +140,10 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	select {
 	case txBuffer <- result:
 		queuesize := atomic.AddInt32(txBufferSize, 1)
-		log.Infof("runMeasurement[%v]: Added item '%v' to tx queue, new queue size: %v", targetID, target.Name, queuesize)
+		log.Infof("runMeasurement[%v]: Added item '%v' to tx queue, new queue size: %v. Target: %v, Success:%v, Hops: %v",
+			targetID, target.Name, queuesize,
+			target.Address, result.Success, result.HopCount,
+		)
 	default:
 		log.Warnf("Couldn't add result for '%v' to queue (current queue size: %v), result discarded. Possibly transmission to master stalled?", result.Target.Name, *txBufferSize)
 	}
@@ -179,7 +183,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 			select {
 			case traceRes := <-buf:
 				atomic.AddInt32(bufSize, -1)
-				log.Debugf("txResultsToMaster: Received workload: '%v', remaining items in queue: %v", traceRes.Target.Name, *bufSize)
+				log.Infof("txResultsToMaster: Transmitting workload: '%v', remaining items in queue: %v", traceRes.Target.Name, *bufSize)
 				currentResult = traceRes
 				workReceived = true
 			default:
@@ -263,7 +267,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 			} else if !txResult.Success && !txResult.RetryPossible {
 				log.Warn("txResultsToMaster: Master replied that request was unsuccessful and shall not retry, Error:", txResult.Error)
 			} else {
-				log.Info("txResultsToMaster: Successfully transmitted results for item: ", currentResult.Target.Name)
+				log.Debugf("txResultsToMaster: Successfully transmitted results for item '%v', items in queue: %v", currentResult.Target.Name, *bufSize)
 			}
 
 			// finished handling, prepare for next item
@@ -321,7 +325,7 @@ func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg
 
 			// loop through configured targets
 			for i, target := range tempCfgTargets {
-				log.Infof("tracePoller: Running measurement proc [%v] for element '%v'", i, target.Name)
+				log.Debugf("tracePoller: Running measurement proc [%v] for element '%v'", i, target.Name)
 				go runMeasurement(i, target, tempCfg, txBuffer, txBufferSize)
 			}
 
