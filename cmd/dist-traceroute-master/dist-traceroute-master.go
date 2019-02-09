@@ -38,7 +38,7 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 	}
 
 	// no match found, unauthorized!
-	log.Warnf("checkCredentials: Unauthorized peer '%v'", req.RemoteAddr)
+	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", slaveCreds.Name, req.RemoteAddr)
 	time.Sleep(2 * time.Second)
 	http.Error(writer, "Unauthorized", http.StatusUnauthorized)
 	return false
