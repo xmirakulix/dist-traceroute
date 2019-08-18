@@ -23,7 +23,6 @@ import (
 // TODO write results to db for minimal stats on webinterface
 // TODO add option to post results to elastic
 // TODO https/TLS
-// TODO make targets config file and access log path configurable
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
 
 // global logger
@@ -153,7 +152,7 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpTxConfigHandler: Received request for config, URL: ", req.URL)
 
@@ -181,24 +180,30 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		}
 
 		// read config from disk
-		cfgFile := "dt-targets.json"
 		var body []byte
-		if body, err = ioutil.ReadFile(cfgFile); err != nil {
+		if body, err = ioutil.ReadFile(targetConfigFile); err != nil {
 			http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Error: Couldn't read config file: ", err)
+			lastTransmittedSlaveConfig = "Error: Couldn't read config file: " + err.Error()
 			return
 		}
 
 		slaveConf := disttrace.SlaveConfig{}
 
+		// check if file can be parsed
 		if err = json.Unmarshal(body, &slaveConf); err != nil {
-			http.Error(writer, "Error: Can't unmarshal config", http.StatusInternalServerError)
-			log.Warn("httpTxConfigHandler: Loaded config can't be unmarshalled, Error: ", err)
+			http.Error(writer, "Error: Can't parse config", http.StatusInternalServerError)
+			log.Warn("httpTxConfigHandler: Loaded config can't be parsed, Error: ", err)
+			lastTransmittedSlaveConfig = "Error: Can't parse config: " + err.Error()
+			return
 		}
 
+		// validate config
 		if ok, e := valid.ValidateStruct(slaveConf); !ok || e != nil {
 			http.Error(writer, "Error: Loaded config is invalid", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Loaded config is invalid, Error: ", e)
+			lastTransmittedSlaveConfig = "Error: Loaded config is invalid: " + err.Error()
+			return
 		}
 
 		// send config to slave
@@ -206,6 +211,7 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		_, err = io.WriteString(writer, string(body))
 		if err != nil {
 			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
+			return
 		}
 
 		log.Infof("httpTxConfigHandler: Transmitting currently configured targets to slave '%v' for %v targets", slaveCreds.Name, len(slaveConf.Targets))
@@ -220,7 +226,7 @@ func writeAccessLog(handler http.Handler) http.Handler {
 	})
 }
 
-func httpServer(ppCfg **disttrace.GenericConfig, accessLog string) {
+func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigFile string) {
 	var err error
 
 	log.Info("httpServer: Start...")
@@ -242,7 +248,7 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string) {
 	router.HandleFunc("/results/", httpRxResultHandler(ppCfg))
 
 	// handle config requests from slaves
-	router.HandleFunc("/config/", httpTxConfigHandler(ppCfg))
+	router.HandleFunc("/config/", httpTxConfigHandler(targetConfigFile, ppCfg))
 
 	// handle everything else
 	router.HandleFunc("/", httpDefaultHandler(ppCfg))
@@ -276,7 +282,9 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string) {
 func main() {
 
 	// parse cmdline arguments
-	var configNameAndPath, logLevel, logPathAndName string
+	var masterConfigNameAndPath, targetsConfigNameAndPath string
+	var mainLogNameAndPath, accessLogNameAndPath string
+	var logLevel string
 
 	// check cmdline args
 	{
@@ -285,22 +293,26 @@ func main() {
 		fSet := flag.FlagSet{}
 		outBuf := bytes.NewBuffer([]byte{})
 		fSet.SetOutput(outBuf)
-		fSet.StringVar(&configNameAndPath, "config", "./dt-slaves.json", "Set config `filename`")
-		fSet.StringVar(&logPathAndName, "log", "./dt-master.log", "Logfile location `/path/to/file`")
+		fSet.StringVar(&masterConfigNameAndPath, "slaves", "./dt-slaves.json", "Set config `filename`")
+		fSet.StringVar(&targetsConfigNameAndPath, "targets", "./dt-targets.json", "Set config `filename`")
+		fSet.StringVar(&mainLogNameAndPath, "log", "./dt-master.log", "Main logfile location `/path/to/file`")
+		fSet.StringVar(&accessLogNameAndPath, "accesslog", "./dt-access.log", "HTTP access logfile location `/path/to/file`")
 		fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		var errCfg, errLog error
-		configNameAndPath, errCfg = disttrace.CleanAndCheckFileNameAndPath(configNameAndPath)
-		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
+		var errMasterCfg, errTargetsCfg, errMainLog, errAccessLog error
+		masterConfigNameAndPath, errMasterCfg = disttrace.CleanAndCheckFileNameAndPath(masterConfigNameAndPath)
+		targetsConfigNameAndPath, errTargetsCfg = disttrace.CleanAndCheckFileNameAndPath(targetsConfigNameAndPath)
+		mainLogNameAndPath, errMainLog = disttrace.CleanAndCheckFileNameAndPath(mainLogNameAndPath)
+		accessLogNameAndPath, errAccessLog = disttrace.CleanAndCheckFileNameAndPath(accessLogNameAndPath)
 
 		// valid cmdline arguments or exit
 		switch {
-		case errCfg != nil:
+		case errMasterCfg != nil || errTargetsCfg != nil:
 			log.Warn("Error: Invalid config file name, can't run, Bye.")
 			disttrace.PrintMasterUsageAndExit(fSet, true)
-		case errLog != nil:
+		case errMainLog != nil || errAccessLog != nil:
 			log.Warn("Error: Invalid log path specified, can't run, Bye.")
 			disttrace.PrintMasterUsageAndExit(fSet, true)
 		case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
@@ -312,11 +324,11 @@ func main() {
 	}
 
 	// setup logging
-	disttrace.SetLogOptions(log, logPathAndName, logLevel)
+	disttrace.SetLogOptions(log, mainLogNameAndPath, logLevel)
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
-	disttrace.DebugPrintAllArguments(configNameAndPath, logPathAndName, logLevel)
+	disttrace.DebugPrintAllArguments(masterConfigNameAndPath, mainLogNameAndPath, logLevel)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
@@ -327,10 +339,10 @@ func main() {
 	var ppCfg = &pCfg
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.MasterConfigPoller(configNameAndPath, ppCfg)
+	go disttrace.MasterConfigPoller(masterConfigNameAndPath, ppCfg)
 
 	log.Info("Main: Launching http server process...")
-	go httpServer(ppCfg, "dt-access.log")
+	go httpServer(ppCfg, accessLogNameAndPath, targetsConfigNameAndPath)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")
