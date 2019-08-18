@@ -81,9 +81,9 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 			var err error
 
 			if pollerCfg.Type == "slave" {
-				err = getConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.SlaveCreds, ppNewCfg)
+				err = getSlaveConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.SlaveCreds, ppNewCfg)
 			} else {
-				err = getConfigFromFile(pollerCfg.FilePath, ppNewCfg)
+				err = getMasterConfigFromFile(pollerCfg.FilePath, ppNewCfg)
 			}
 
 			if err != nil {
@@ -115,8 +115,8 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 	}
 }
 
-// getConfigFromFile reads master configuration from file
-func getConfigFromFile(filePath string, ppCfg **GenericConfig) error {
+// getMasterConfigFromFile reads master configuration from file
+func getMasterConfigFromFile(filePath string, ppCfg **GenericConfig) error {
 
 	// create new empty config
 	var newCfg = MasterConfig{}
@@ -126,33 +126,33 @@ func getConfigFromFile(filePath string, ppCfg **GenericConfig) error {
 	// open file
 	jsonFile, err := os.Open(filePath)
 	if err != nil {
-		log.Fatalf("getConfigFromFile: Couldn't open file '%v', Error: %v", filePath, err)
+		log.Fatalf("getMasterConfigFromFile: Couldn't open file '%v', Error: %v", filePath, err)
 	}
 	defer jsonFile.Close()
 
 	byteValue, err := ioutil.ReadAll(jsonFile)
 	if err != nil {
-		log.Fatalf("getConfigFromFile: Couldn't read from file '%v', Error: %v", filePath, err)
+		log.Fatalf("getMasterConfigFromFile: Couldn't read from file '%v', Error: %v", filePath, err)
 	}
 
 	err = json.Unmarshal(byteValue, &newCfg)
 	if err != nil {
-		log.Fatalf("getConfigFromFile: Couldn't unmarshal content of file '%v', Error: %v", filePath, err)
+		log.Fatalf("getMasterConfigFromFile: Couldn't unmarshal content of file '%v', Error: %v", filePath, err)
 	}
 
-	log.Debugf("getConfigFromFile: Got config from file '%v', number of configured slaves: %v", filePath, len(newCfg.Slaves))
+	log.Debugf("getMasterConfigFromFile: Got config from file '%v', number of configured slaves: %v", filePath, len(newCfg.Slaves))
 	*pCfg.MasterConfig = newCfg
 	return nil
 }
 
-// getConfigFromMaster fetches the slave's configuration from the master server
-func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) error {
+// getSlaveConfigFromMaster fetches the slave's configuration from the master server
+func getSlaveConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) error {
 
 	var slaveCredsJSON, _ = json.Marshal(slaveCreds)
 	var masterURL = "http://" + masterHost + ":" + masterPort + "/config/"
 
 	if !valid.IsURL(masterURL) {
-		log.Warnf("getConfigFromMaster: Cant' get config, master URL '%v' is invalid", masterURL)
+		log.Warnf("getSlaveConfigFromMaster: Cant' get config, master URL '%v' is invalid", masterURL)
 		return errors.New("Can't get config, master URL is invalid")
 	}
 
@@ -160,7 +160,7 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 	var pCfg = *ppCfg
 	*pCfg.SlaveConfig = newCfg
 
-	log.Debug("getConfigFromMaster: Attempting to read configuration from URL: ", masterURL)
+	log.Debug("getSlaveConfigFromMaster: Attempting to read configuration from URL: ", masterURL)
 	var httpClient = &http.Client{
 		Timeout: time.Second * 10,
 	}
@@ -168,27 +168,27 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 	// download configuration file from master
 	httpResp, err := httpClient.Post(masterURL, "application/json", bytes.NewBuffer(slaveCredsJSON))
 	if err != nil {
-		log.Warn("getConfigFromMaster: Error sending HTTP Request: ", err)
+		log.Warn("getSlaveConfigFromMaster: Error sending HTTP Request: ", err)
 		return errors.New("Error sending HTTP Request")
 	}
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode >= 400 {
-		log.Warn("getConfigFromMaster: Error getting configuration, received HTTP status: ", httpResp.Status)
+		log.Warn("getSlaveConfigFromMaster: Error getting configuration, received HTTP status: ", httpResp.Status)
 		return errors.New("Error getting configuration, received HTTP error")
 	}
 
 	// read response from master
 	httpRespBody, err := ioutil.ReadAll(httpResp.Body)
 	if err != nil {
-		log.Warn("getConfigFromMaster: Can't read response body: ", err)
+		log.Warn("getSlaveConfigFromMaster: Can't read response body: ", err)
 		return errors.New("Can't read response body")
 	}
 
 	// parse result
 	err = json.Unmarshal(httpRespBody, &newCfg)
 	if err != nil {
-		log.Warnf("getConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v", string(httpRespBody)[:100], err)
+		log.Warnf("getSlaveConfigFromMaster: Can't parse body '%v' (first 100 char), Error: %v", string(httpRespBody)[:100], err)
 		*pCfg.SlaveConfig = newCfg
 		return errors.New("Can't parse response body")
 	}
@@ -196,7 +196,7 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 	// validate config
 	success, err := valid.ValidateStruct(newCfg)
 	if !success {
-		log.Warn("getConfigFromMaster: Validation of received config failed. Error: ", err)
+		log.Warn("getSlaveConfigFromMaster: Validation of received config failed. Error: ", err)
 		return errors.New("Validation failed")
 	}
 
@@ -204,7 +204,7 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 	for i, target := range newCfg.Targets {
 		success, err := valid.ValidateStruct(target)
 		if !success {
-			log.Warnf("getConfigFromMaster: Validation of target '%v' in received config failed. Error: %v", i, err)
+			log.Warnf("getSlaveConfigFromMaster: Validation of target '%v' in received config failed. Error: %v", i, err)
 			return errors.New("Validation failed")
 		}
 	}
@@ -213,7 +213,7 @@ func getConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveC
 	newCfg.MasterHost = masterHost
 	newCfg.MasterPort = masterPort
 
-	log.Debug("getConfigFromMaster: Got config from master, number of configured targets: ", len(newCfg.Targets))
+	log.Debug("getSlaveConfigFromMaster: Got config from master, number of configured targets: ", len(newCfg.Targets))
 	*pCfg.SlaveConfig = newCfg
 	return nil
 }
