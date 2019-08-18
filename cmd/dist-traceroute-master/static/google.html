@@ -1,0 +1,63 @@
+<html>
+  <head>
+    <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+    <script type="text/javascript">
+      google.charts.load('current', {'packages':['sankey']});
+      google.charts.setOnLoadCallback(drawChart);
+
+      function drawChart() {
+        var data = new google.visualization.DataTable();
+        data.addColumn('string', 'From');
+        data.addColumn('string', 'To');
+        data.addColumn('number', 'Weight');
+        data.addRows([
+          [ '1', '2', 100 ],
+          [ '2', '3', 90 ],
+          [ '2', '3b', 10 ],
+          [ '3', '4', 90 ],
+          [ '4', '5', 90 ],
+          [ '5', '6', 90 ],
+          [ '6', '7', 90 ],
+          [ '7', '8', 90 ],
+          [ '8', '9', 90 ],
+          [ '9', '10', 90 ],
+          [ '10', '11a', 30 ],
+          [ '10', '11b', 30 ],
+          [ '10', '11c', 30 ],
+          [ '11a', '12', 30 ],
+          [ '11b', '12', 30 ],
+          [ '11c', '12', 30 ],
+          [ '12', '13', 90 ],
+          [ '13', '14', 90 ],
+          [ '14', '15', 90 ],
+          [ '15', '16', 90 ],
+          [ '16', '17', 90 ],
+
+          [ '3b', '4a', 10 ],
+          [ '4a', '5a', 10 ],
+          [ '5a', '6a', 10 ],
+          [ '6a', '7a', 10 ],
+          [ '7a', '8a', 10 ],
+          [ '8a', '17', 10 ],
+
+        ]);
+
+        // Sets chart options.
+        var options = {
+          width: 600,
+          sankey: {
+              iterations: 1000,
+              node: { nodePadding: 20}
+          }
+        };
+
+        // Instantiates and draws our chart, passing in some options.
+        var chart = new google.visualization.Sankey(document.getElementById('sankey_basic'));
+        chart.draw(data, options);
+      }
+    </script>
+  </head>
+  <body>
+    <div id="sankey_basic" style="width: 900px; height: 300px;"></div>
+  </body>
+</html>

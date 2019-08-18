@@ -1,0 +1,93 @@
+{
+    "nodes" : [
+        {
+            "name": "localhost",
+            "id": "localhost"
+        },
+        {
+            "name": "modem",
+            "id": "192.168.1.1"
+        },
+        {
+            "name": "router1.test.at",
+            "id": "192.168.2.1"
+        },
+        {
+            "name": "router2.test.at",
+            "id": "192.168.2.2"
+        },
+        {
+            "name": "predest1.test.at",
+            "id": "192.168.3.1"
+        },
+        {
+            "name": "predest2.test.at",
+            "id": "192.168.3.2"
+        },
+        {
+            "name": "predest3.test.at",
+            "id": "192.168.3.3"
+        },
+        {
+            "name": "dest.test.at",
+            "id": "192.168.4.1"
+        }
+    ],
+    
+    "links" : [
+       {
+          "source" : 0,
+          "target" : 1,
+          "value" : 100
+       },
+       {
+        "source" : 1,
+        "target" : 2,
+        "value" : 80
+     },
+     {
+        "source" : 1,
+        "target" : 3,
+        "value" : 20
+     },
+     {
+        "source" : 3,
+        "target" : 7,
+        "value" : 20
+     },
+
+     {
+        "source" : 2,
+        "target" : 4,
+        "value" : 20
+     },
+     {
+        "source" : 2,
+        "target" : 5,
+        "value" : 2
+     },
+     {
+        "source" : 2,
+        "target" : 6,
+        "value" : 58
+     },
+
+
+     {
+        "source" : 4,
+        "target" : 7,
+        "value" : 20
+     },
+     {
+        "source" : 5,
+        "target" : 7,
+        "value" : 2
+     },
+     {
+        "source" : 6,
+        "target" : 7,
+        "value" : 58
+     }
+
+    ]
+ }

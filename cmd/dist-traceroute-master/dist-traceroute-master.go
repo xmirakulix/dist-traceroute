@@ -226,6 +226,10 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string) {
 	// handle everything else
 	router.HandleFunc("/", httpDefaultHandler(ppCfg))
 
+	router.HandleFunc("/static/", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, r.URL.Path[1:])
+	})
+
 	// start server...
 	go func() {
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
