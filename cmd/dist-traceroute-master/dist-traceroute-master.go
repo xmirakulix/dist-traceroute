@@ -30,7 +30,9 @@ var log = logrus.New()
 
 var httpProcQuitDone = make(chan bool, 1)
 
+// status vars for webinterface
 var lastTransmittedSlaveConfig = "none yet"
+var lastTransmittedSlaveConfigTime time.Time
 
 func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
 
@@ -61,15 +63,22 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		pCfg := *ppCfg
 		masterCfgJSON, _ := json.MarshalIndent(pCfg.MasterConfig, "", "	")
 
+		var timeSinceSlaveCfg string
+		if lastTransmittedSlaveConfigTime.IsZero() {
+			timeSinceSlaveCfg = ""
+		} else {
+			timeSinceSlaveCfg = time.Since(lastTransmittedSlaveConfigTime).Truncate(time.Second).String() + " ago"
+		}
+
 		response :=
 			"<html>" +
 				"<title>dist-traceroute Master</title> " +
 				"<h1>dist-traceroute Master</h1>" +
 				"Hi, this is the webservice of the dist-traceroute master service.<br/>" +
 				"<br />" +
-				"Uptime: " + disttrace.GetUptime().String() + "<br /><br />" +
+				"Uptime: " + disttrace.GetUptime().Truncate(time.Second).String() + "<br /><br />" +
 				"Currently loaded master config: <pre>" + string(masterCfgJSON) + "</pre> <br />" +
-				"Last transmitted slave config: <pre>" + lastTransmittedSlaveConfig + "</pre> <br />"
+				"Last transmitted slave config: " + timeSinceSlaveCfg + "<pre>" + lastTransmittedSlaveConfig + "</pre> <br />"
 
 		_, err := io.WriteString(writer, response)
 		if err != nil {
@@ -185,6 +194,7 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 			http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Error: Couldn't read config file: ", err)
 			lastTransmittedSlaveConfig = "Error: Couldn't read config file: " + err.Error()
+			lastTransmittedSlaveConfigTime = time.Now()
 			return
 		}
 
@@ -195,6 +205,7 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 			http.Error(writer, "Error: Can't parse config", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Loaded config can't be parsed, Error: ", err)
 			lastTransmittedSlaveConfig = "Error: Can't parse config: " + err.Error()
+			lastTransmittedSlaveConfigTime = time.Now()
 			return
 		}
 
@@ -203,11 +214,13 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 			http.Error(writer, "Error: Loaded config is invalid", http.StatusInternalServerError)
 			log.Warn("httpTxConfigHandler: Loaded config is invalid, Error: ", e)
 			lastTransmittedSlaveConfig = "Error: Loaded config is invalid: " + err.Error()
+			lastTransmittedSlaveConfigTime = time.Now()
 			return
 		}
 
 		// send config to slave
 		lastTransmittedSlaveConfig = string(body)
+		lastTransmittedSlaveConfigTime = time.Now()
 		_, err = io.WriteString(writer, string(body))
 		if err != nil {
 			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
