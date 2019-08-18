@@ -31,6 +31,8 @@ var log = logrus.New()
 
 var httpProcQuitDone = make(chan bool, 1)
 
+var lastTransmittedSlaveConfig = "none yet"
+
 func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
 
 	success = false
@@ -55,7 +57,25 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 
 func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Info("httpDefaultHandler: Received request for unknown URL: ", req.URL)
+		log.Info("httpDefaultHandler: Received request for base/unknown URL: ", req.URL)
+
+		pCfg := *ppCfg
+		masterCfgJSON, _ := json.MarshalIndent(pCfg.MasterConfig, "", "	")
+
+		response :=
+			"<html>" +
+				"<title>dist-traceroute Master</title> " +
+				"<h1>dist-traceroute Master</h1>" +
+				"Hi, this is the webservice of the dist-traceroute master service.<br/>" +
+				"<br />" +
+				"Uptime: " + disttrace.GetUptime().String() + "<br /><br />" +
+				"Currently loaded master config: <pre>" + string(masterCfgJSON) + "</pre> <br />" +
+				"Last transmitted slave config: <pre>" + lastTransmittedSlaveConfig + "</pre> <br />"
+
+		_, err := io.WriteString(writer, response)
+		if err != nil {
+			log.Warn("httpDefaultHandler: Couldn't write response: ", err)
+		}
 	}
 }
 
@@ -182,6 +202,7 @@ func httpTxConfigHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		}
 
 		// send config to slave
+		lastTransmittedSlaveConfig = string(body)
 		_, err = io.WriteString(writer, string(body))
 		if err != nil {
 			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)

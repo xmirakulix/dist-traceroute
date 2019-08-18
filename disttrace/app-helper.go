@@ -11,11 +11,15 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 )
 
 import (
 	valid "github.com/asaskevich/govalidator"
 )
+
+// Track starttime of application
+var startTime = time.Now()
 
 // OSSigReceived mutex to show OS signal was received
 var OSSigReceived = make(chan bool, 1)
@@ -25,6 +29,11 @@ var doExit = false
 
 // global logger
 var log = logrus.New()
+
+// GetUptime returns the application's uptime since launch
+func GetUptime() time.Duration {
+	return time.Since(startTime)
+}
 
 // ListenForOSSignals registers for OS signals and waits for them
 func ListenForOSSignals() {
