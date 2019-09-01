@@ -8,14 +8,19 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-// DB Wraps sql.DB
+// DB wraps sql.DB
 type DB struct {
 	*sql.DB
 }
 
-// Tx Wraps sql.Tx
+// Tx wraps sql.Tx
 type Tx struct {
 	*sql.Tx
+}
+
+// Stmt wraps sql.Stmt
+type Stmt struct {
+	*sql.Stmt
 }
 
 // open creates the database connection and returns a db reference
@@ -53,10 +58,10 @@ func (tx *Tx) Commit() error {
 // Rollback aborts the transaction
 func (tx *Tx) Rollback() error {
 	if err := tx.Tx.Rollback(); err != nil {
-		log.Warn("DB Commit: Error while rolling the transaction back, Error: ", err)
+		log.Warn("DB Rollback: Error while rolling the transaction back, Error: ", err)
 		return err
 	}
-	log.Debug("DB Commit: Successfully rolled transaction back")
+	log.Debug("DB Rollback: Successfully rolled transaction back")
 	return nil
 }
 
@@ -157,5 +162,36 @@ func (tx *Tx) Exec(query string, args ...interface{}) (sql.Result, error) {
 	}
 
 	log.Debugf("DB ExecTx: Successfully executed statement <%v>, duration: %v", query, time.Since(startTime))
+	return result, nil
+}
+
+// Prepare creates a prepared statement
+func (tx *Tx) Prepare(query string) (*Stmt, error) {
+
+	startTime := time.Now()
+
+	stmt, err := tx.Tx.Prepare(query)
+
+	if err != nil {
+		log.Warnf("DB Prepare: Error while preparing statement <%v>, duration: %v, Error: %v", query, time.Since(startTime), err)
+		return nil, err
+	}
+
+	log.Debugf("DB Prepare: Successfully prepared statement for query <%v>, duration: %v", query, time.Since(startTime))
+	return &Stmt{stmt}, nil
+}
+
+// Exec executes a prepared statement
+func (stmt *Stmt) Exec(args ...interface{}) (sql.Result, error) {
+
+	startTime := time.Now()
+
+	result, err := stmt.Stmt.Exec(args...)
+	if err != nil {
+		log.Warnf("DB ExecStmt: Error while executing prepared statement, duration: %v, Error: %v", time.Since(startTime), err)
+		return nil, err
+	}
+
+	log.Debugf("DB ExecStmt: Successfully executed prepared statement, duration: %v", time.Since(startTime))
 	return result, nil
 }
