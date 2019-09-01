@@ -56,7 +56,10 @@ func (db *DB) createAndUpdateDbSchema() error {
 	schemaUpdate[0] = []string{}
 
 	schemaUpdate[1] = []string{
-		"CREATE TABLE IF NOT EXISTS t_SchemaInfo (nVersion INTEGER PRIMARY KEY)",
+		`CREATE TABLE IF NOT EXISTS t_SchemaInfo (
+			nVersion INTEGER PRIMARY KEY
+			)`,
+
 		"INSERT INTO t_SchemaInfo VALUES (1)",
 	}
 
@@ -68,14 +71,18 @@ func (db *DB) createAndUpdateDbSchema() error {
 			dtStart INTEGER NOT NULL,
 			strAnnotations TEXT
 			)`,
+
 		`CREATE TABLE IF NOT EXISTS t_Hops (
 			nHopId INTEGER PRIMARY KEY AUTOINCREMENT, 
-			nHopNumber INTEGER NOT NULL,
-			strHopAddress TEXT,
-			nPreviousHopId TEXT,
-			dDuration INTEGER,
+			nTracerouteId INTEGER NOT NULL, 
+			nHopIndex INTEGER NOT NULL,
+			strHopIPAddress TEXT,
+			strHopDNSName TEXT, 
+			dDurationSec INTEGER,
+			nPreviousHopId INTEGER,
 			strAnnotations TEXT
 			)`,
+
 		`UPDATE t_SchemaInfo SET nVersion = 2`,
 	}
 
