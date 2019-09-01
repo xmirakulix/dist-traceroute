@@ -13,6 +13,7 @@ import (
 )
 
 import (
+	"database/sql"
 	valid "github.com/asaskevich/govalidator"
 	ghandlers "github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
@@ -20,10 +21,11 @@ import (
 )
 
 // TODO log results to seperate log
-// TODO write results to db for minimal stats on webinterface
+// TODO minimal stats on webinterface
 // TODO add option to post results to elastic
 // TODO https/TLS
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
+// TODO config of slaves and targets in db
 
 // global logger
 var log = logrus.New()
@@ -33,6 +35,8 @@ var httpProcQuitDone = make(chan bool, 1)
 // status vars for webinterface
 var lastTransmittedSlaveConfig = "none yet"
 var lastTransmittedSlaveConfigTime time.Time
+
+var db *disttrace.DB
 
 func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
 
@@ -135,7 +139,94 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			return
 		}
 
-		// TODO use submitted result!
+		// store submitted result
+		var tx *disttrace.Tx
+		var errDb error
+		errDb = nil
+
+		if tx, errDb = db.Begin(); err != nil {
+			log.Warn("httpRxResultHandler: Error creating database transaction while storing result, Error: ", errDb)
+			http.Error(writer, "Database error", http.StatusInternalServerError)
+			return
+		}
+		// catch errors and rollback!
+		defer func() {
+			if errDb != nil {
+				log.Warn("httpRxResultHandler: Caught error during database operations, rolling transaction back!")
+				tx.Rollback()
+			}
+		}()
+
+		// prepare traceroute insert
+		traceStmt, errDb := tx.Prepare(`
+			INSERT INTO t_Traceroutes (nTracerouteId, strOriginSlave, strDestination, dtStart, strAnnotations) 
+			VALUES (?, ?, ?, ?, ?)
+			`)
+		defer traceStmt.Close()
+		if errDb != nil {
+			log.Warn("httpRxResultHandler: Error while preparing database statement, Error: ", errDb)
+			http.Error(writer, "Database error", http.StatusInternalServerError)
+			return
+		}
+
+		// prepare hop insert
+		hopStmt, errDb := tx.Prepare(`
+			INSERT INTO t_Hops (nHopId, nTracerouteId, nHopIndex, strHopIPAddress, strHopDNSName, dDurationSec, nPreviousHopId)	
+			VALUES (?, ?, ?, ?, ?, ?, ?) 
+			`)
+		defer hopStmt.Close()
+		if errDb != nil {
+			log.Warn("httpRxResultHandler: Error while preparing database statement, Error: ", errDb)
+			http.Error(writer, "Database error", http.StatusInternalServerError)
+			return
+		}
+
+		log.Debug("httpRxResultHandler: Finished preparing queries, inserting data...")
+
+		// Insert result info
+		resTrace, errDb := traceStmt.Exec(nil, result.Creds.Name, result.Target.Address, result.DateTime.Format(time.RFC3339), "")
+		if errDb != nil {
+			log.Warn("httpRxResultHandler: Error while inserting result, Error: ", errDb)
+			http.Error(writer, "Database error", http.StatusInternalServerError)
+			return
+		}
+		lastTraceID, errDb := resTrace.LastInsertId()
+		if errDb != nil {
+			log.Warn("httpRxResultHandler: Error while getting last inserted ID of traceroute, Error: ", errDb)
+			http.Error(writer, "Database error", http.StatusInternalServerError)
+			return
+		}
+		log.Debug("httpRxResultHandler: Inserted result with ID: ", lastTraceID)
+
+		// Insert hops info
+		var prevHopID int64
+		for _, hop := range result.Hops {
+			var resHop sql.Result
+			// prev hop is null on first hop
+			if hop.N == 0 {
+				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.N, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), nil)
+			} else {
+				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.N, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), prevHopID)
+			}
+			if errDb != nil {
+				log.Warn("httpRxResultHandler: Error while inserting hop, Error: ", errDb)
+				http.Error(writer, "Database error", http.StatusInternalServerError)
+				return
+			}
+			prevHopID, errDb = resHop.LastInsertId()
+			if errDb != nil {
+				log.Warn("httpRxResultHandler: Error while getting last inserted ID of hop, Error: ", errDb)
+				http.Error(writer, "Database error", http.StatusInternalServerError)
+				return
+			}
+		}
+		log.Debug("httpRxResultHandler: Successfully inserted trace info and hops, commiting transaction...")
+
+		if errDb = tx.Commit(); errDb != nil {
+			log.Warn("httpRxResultHandler: Error while commiting transaction, Error: ", errDb)
+			http.Error(writer, "Database error", http.StatusInternalServerError)
+			return
+		}
 
 		// reply with success
 		response := disttrace.SubmitResult{
@@ -297,6 +388,7 @@ func main() {
 	// parse cmdline arguments
 	var masterConfigNameAndPath, targetsConfigNameAndPath string
 	var mainLogNameAndPath, accessLogNameAndPath string
+	var dbNameAndPath string
 	var logLevel string
 
 	// check cmdline args
@@ -308,17 +400,19 @@ func main() {
 		fSet.SetOutput(outBuf)
 		fSet.StringVar(&masterConfigNameAndPath, "slaves", "./dt-slaves.json", "Set config `filename`")
 		fSet.StringVar(&targetsConfigNameAndPath, "targets", "./dt-targets.json", "Set config `filename`")
+		fSet.StringVar(&dbNameAndPath, "db", "./disttrace.db", "Set database `filename`")
 		fSet.StringVar(&mainLogNameAndPath, "log", "./dt-master.log", "Main logfile location `/path/to/file`")
 		fSet.StringVar(&accessLogNameAndPath, "accesslog", "./dt-access.log", "HTTP access logfile location `/path/to/file`")
 		fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		var errMasterCfg, errTargetsCfg, errMainLog, errAccessLog error
+		var errMasterCfg, errTargetsCfg, errMainLog, errAccessLog, errDb error
 		masterConfigNameAndPath, errMasterCfg = disttrace.CleanAndCheckFileNameAndPath(masterConfigNameAndPath)
 		targetsConfigNameAndPath, errTargetsCfg = disttrace.CleanAndCheckFileNameAndPath(targetsConfigNameAndPath)
 		mainLogNameAndPath, errMainLog = disttrace.CleanAndCheckFileNameAndPath(mainLogNameAndPath)
 		accessLogNameAndPath, errAccessLog = disttrace.CleanAndCheckFileNameAndPath(accessLogNameAndPath)
+		dbNameAndPath, errDb = disttrace.CleanAndCheckFileNameAndPath(dbNameAndPath)
 
 		// valid cmdline arguments or exit
 		switch {
@@ -327,6 +421,9 @@ func main() {
 			disttrace.PrintMasterUsageAndExit(fSet, true)
 		case errMainLog != nil || errAccessLog != nil:
 			log.Warn("Error: Invalid log path specified, can't run, Bye.")
+			disttrace.PrintMasterUsageAndExit(fSet, true)
+		case errDb != nil:
+			log.Warn("Error: Invalid database path specified, can't run, Bye.")
 			disttrace.PrintMasterUsageAndExit(fSet, true)
 		case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
 			log.Warn("Error: Invalid loglevel specified, can't run, Bye.")
@@ -350,6 +447,15 @@ func main() {
 	var pCfg = new(disttrace.GenericConfig)
 	pCfg.MasterConfig = new(disttrace.MasterConfig)
 	var ppCfg = &pCfg
+
+	// init database connection
+	{
+		var err error
+		if db, err = disttrace.InitDBConnectionAndUpdate(dbNameAndPath); err != nil {
+			log.Fatal("Main: Couldn't initiate database connection! Error: ", err)
+		}
+		log.Info("Main: Database connection initiated...")
+	}
 
 	log.Info("Main: Launching config poller process...")
 	go disttrace.MasterConfigPoller(masterConfigNameAndPath, ppCfg)
