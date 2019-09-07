@@ -9,5 +9,6 @@
 
 # get rid of:
 *.db
+*.db-journal
 *.log
 .DS_Store
