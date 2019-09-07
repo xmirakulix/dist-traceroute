@@ -13,6 +13,7 @@
             "env": {},
             "args": ["-loglevel=debug", "-master=localhost", "-name=slave", "-passwd=123",],
             "showLog": true,
+            "buildFlags":"-tags=json1",
         }
     ]
 }
