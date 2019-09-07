@@ -14,6 +14,7 @@ import (
 
 import (
 	"database/sql"
+	"fmt"
 	valid "github.com/asaskevich/govalidator"
 	ghandlers "github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
@@ -21,7 +22,6 @@ import (
 )
 
 // TODO log results to seperate log
-// TODO minimal stats on webinterface
 // TODO add option to post results to elastic
 // TODO https/TLS
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
@@ -64,6 +64,8 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Info("httpDefaultHandler: Received request for base/unknown URL: ", req.URL)
 
+		var err error
+
 		pCfg := *ppCfg
 		masterCfgJSON, _ := json.MarshalIndent(pCfg.MasterConfig, "", "	")
 
@@ -74,6 +76,54 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			timeSinceSlaveCfg = time.Since(lastTransmittedSlaveConfigTime).Truncate(time.Second).String() + " ago"
 		}
 
+		lastResultsQuery := `
+			SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, t.dtStart, COUNT(h.nHopId) AS nHopCount, 
+				json_group_object(h.nHopIndex, json_object('IP', h.strHopIPAddress, 'DNS', h.strHopDNSName, 'Duration', h.dDurationSec)) AS strHopDetails
+			FROM t_Traceroutes t LEFT JOIN t_Hops h ON t.nTracerouteId = h.nTracerouteId
+			GROUP BY t.nTracerouteId
+			ORDER BY t.nTracerouteId DESC
+			LIMIT 5;
+			`
+		var resRows *sql.Rows
+		var resTableRows string
+
+		resTableHeader := `
+			<tr>
+				<th>nTracerouteId</th>	
+				<th>strOriginSlave</th>	
+				<th>strDestination</th>	
+				<th>dtStart</th>	
+				<th>nHopCount</th>	
+			</tr>
+		`
+
+		if resRows, err = db.Query(lastResultsQuery); err != nil {
+			log.Warn("httpDefaultHandler: Couldn't get last results from DB, Error: ", err)
+			resTableRows = "<tr><td>Couldn't read results from DB</td></tr>"
+		} else {
+			for resRows.Next() {
+				var traceID, hopCnt int64
+				var slaveName, destName, detailJSON string
+				var startTime string
+
+				if err = resRows.Scan(&traceID, &slaveName, &destName, &startTime, &hopCnt, &detailJSON); err != nil {
+					log.Warn("httpDefaultHandler: Couldn't read result set, Error: ", err)
+					resTableRows = "<tr><td>Couldn't read results from DB</td></tr>"
+					break
+				}
+
+				resTableRows +=
+					"<tr>" +
+						"<td>" + fmt.Sprintf("%v", traceID) + "</td>" +
+						"<td>" + slaveName + "</td>" +
+						"<td>" + destName + "</td>" +
+						"<td>" + startTime + "</td>" +
+						"<td title='" + detailJSON + "'>" + fmt.Sprintf("%v", hopCnt) + "</td>" +
+						"</tr>"
+			}
+		}
+		resRows.Close()
+
 		response :=
 			"<html>" +
 				"<title>dist-traceroute Master</title> " +
@@ -81,11 +131,12 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 				"Hi, this is the webservice of the dist-traceroute master service.<br/>" +
 				"<br />" +
 				"Uptime: " + disttrace.GetUptime().Truncate(time.Second).String() + "<br /><br />" +
+				"Last results received: <table>" + resTableHeader + resTableRows + "</table><br /><br />" +
 				"Currently loaded master config: <pre>" + string(masterCfgJSON) + "</pre> <br />" +
-				"Last transmitted slave config: " + timeSinceSlaveCfg + "<pre>" + lastTransmittedSlaveConfig + "</pre> <br />"
+				"Last transmitted slave config: " + timeSinceSlaveCfg + "<pre>" + lastTransmittedSlaveConfig + "</pre> <br />" +
+				"</html>"
 
-		_, err := io.WriteString(writer, response)
-		if err != nil {
+		if _, err = io.WriteString(writer, response); err != nil {
 			log.Warn("httpDefaultHandler: Couldn't write response: ", err)
 		}
 	}
@@ -203,10 +254,10 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		for _, hop := range result.Hops {
 			var resHop sql.Result
 			// prev hop is null on first hop
-			if hop.N == 0 {
-				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.N, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), nil)
+			if hop.TTL == 0 {
+				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), nil)
 			} else {
-				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.N, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), prevHopID)
+				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), prevHopID)
 			}
 			if errDb != nil {
 				log.Warn("httpRxResultHandler: Error while inserting hop, Error: ", errDb)
