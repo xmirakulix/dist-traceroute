@@ -5,18 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
-	"github.com/xmirakulix/dist-traceroute/disttrace"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
 	"time"
-)
 
-import (
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/xmirakulix/dist-traceroute/disttrace"
+
 	tracert "github.com/aeden/traceroute"
 	valid "github.com/asaskevich/govalidator"
 )
@@ -31,8 +30,7 @@ var log = logrus.New()
 var txProcRunning = make(chan bool, 1)
 var tracePollerProcRunning = make(chan bool, 1)
 
-var measurementRunning = make(map[uuid.UUID]bool)
-var measurementRunningMapLock = sync.Mutex{}
+var measurementRunningLock = sync.Mutex{}
 
 // shall we exit?
 var doExit = false
@@ -40,28 +38,8 @@ var doExit = false
 // debug mode set as cmdline argument?
 var debugMode = false
 
-// sets measurement as finished in
-func setMeasurementFinished(targetID uuid.UUID) {
-	measurementRunningMapLock.Lock()
-	delete(measurementRunning, targetID)
-	measurementRunningMapLock.Unlock()
-}
-
-// runMeasurement is run for every target simultaneously as a seperate process. Hands results directly to txProcess
+// runMeasurement runs the traceroute for the given target and hands results directly to txProcess
 func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult, txBufferSize *int32) {
-
-	// Is another measurement for this target already running?
-	measurementRunningMapLock.Lock()
-	if measurementRunning[targetID] == true {
-		log.Infof("runMeasurement[%s]: Another measurement for target '%v' is already running, not measuring...", targetID, target.Name)
-		measurementRunningMapLock.Unlock()
-		return
-	}
-
-	// set as running and ensure to remove again
-	measurementRunning[targetID] = true
-	measurementRunningMapLock.Unlock()
-	defer setMeasurementFinished(targetID)
 
 	// init results struct
 	var result = disttrace.TraceResult{}
@@ -118,6 +96,10 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	opts.SetMaxHops(cfg.MaxHops)
 	opts.SetRetries(cfg.Retries)
 	opts.SetTimeoutMs(cfg.TimeoutMs)
+
+	// don't run two measurements simultaneously!
+	measurementRunningLock.Lock()
+	defer measurementRunningLock.Unlock()
 
 	// do measurement
 	res, err := tracert.Traceroute(target.Address, &opts, c)
@@ -331,16 +313,15 @@ func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg
 			// loop through configured targets
 			for i, target := range tempCfgTargets {
 				log.Debugf("tracePoller: Running measurement proc [%v] for element '%v'", i, target.Name)
-				go runMeasurement(i, target, tempCfg, txBuffer, txBufferSize)
+				runMeasurement(i, target, tempCfg, txBuffer, txBufferSize)
 			}
 
 			// run again on next full minute
 			nextTime = time.Now().Truncate(time.Minute)
 			nextTime = nextTime.Add(time.Minute).Add(10 * time.Second)
+		} else {
+			time.Sleep(1 * time.Second)
 		}
-
-		// zzz...
-		time.Sleep(1 * time.Second)
 	}
 }
 
