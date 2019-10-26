@@ -1,59 +1,76 @@
 # dist-traceroute
+
 dist-traceroute is a distributed traceroute tool written in Go. It runs as a **Master server** and **distributed Slaves** (probes) on **remote machines**.
 
 The **Slaves** are **config-less**, thus they get their instructions from the Master and report measurements back.
-Example usage: `# sudo ./dist-traceroute-slave -master=localhost -name=slave1 -passwd=1234`
+Example usage:
+
+```console
+# sudo ./dist-traceroute-slave -master localhost -name slave1 -passwd 1234
+```
 
 The **Master** holds the config in config-files, **instructs the Slaves** with their work and **collects measurements** from all Slaves.
-Example usage: `# ./dist-traceroute-master`
+Example usage:
 
-# Master
-The dist-traceroute Master acts as the single point of contact for all Slaves. 
+```console
+# ./dist-traceroute-master
+```
+
+## Master
+
+The dist-traceroute Master acts as the single point of contact for all Slaves.
 
 The Master holds a list of allowed Slaves which may receive their configuration using their individual credentials.
 Further to this, the Master holds the configuration of the **Targets**, that shall be **monitored by all Slaves**.
 Data is transferred between Master and Slave via HTTP, the **Master** listens on **port 8990**.
 
-## Usage on Master
-```
+### Usage on Master
+
+```console
 # ./dist-traceroute-master -help
 Usage:
   -config filename
-    	Set config filename (default "./dt-slaves.json")
+     Set config filename (default "./dt-slaves.json")
   -help
-    	display this message
+     display this message
   -log /path/to/file
-    	Logfile location /path/to/file (default "./dt-master.log")
+     Logfile location /path/to/file (default "./dt-master.log")
   -loglevel warn, info, debug
-    	Specify loglevel, one of warn, info, debug (default "info")
+     Specify loglevel, one of warn, info, debug (default "info")
 ```
 
 Example:
-```
+
+```console
 # ./dist-traceroute-master
 ```
 
-## Example allowed Slaves config
-The Master needs to know all slaves that shall be able to connect, they are stored in a configuration file (Default: dt-slaves.json). 
-```
+### Example allowed Slaves config
+
+The Master needs to know all slaves that shall be able to connect, they are stored in a configuration file (Default: dt-slaves.json).
+
+```console
 # cat dt-slaves.json
 {
-	"Slaves": 
-	[
-		{
-			"Name": "slave1",
-			"Password": "1234"
-		},
-		{
-			"Name": "slave2",
-			"Password": "123"
-		}
-	]
+ "Slaves":
+ [
+  {
+   "Name": "slave1",
+   "Password": "1234"
+  },
+  {
+   "Name": "slave2",
+   "Password": "123"
+  }
+ ]
 }
 ```
-## Example Targets configuration
+
+### Example Targets configuration
+
 This config file (Default: dt-targets.json) holds all Targets, that shall be periodically probed by the Slaves.
-```
+
+```json
 {
         "ReportURL": "http://localhost:8990/results/post",
         "Targets": {
@@ -72,35 +89,38 @@ This config file (Default: dt-targets.json) holds all Targets, that shall be per
 }
 ```
 
-# Slave
+## Slave
+
 The dist-traceroute slave are config-less probes and only need to be able to find their master server.
 
 Slaves needs to be **run as root** to be able to conduct traceroute measurements.
-It sends UDP datagrams and receives ICMP packets. For more details see https://github.com/aeden/traceroute
+It sends UDP datagrams and receives ICMP packets. For more details see <https://github.com/aeden/traceroute>
 
-## Usage on Slave
-```
+### Usage on Slave
+
+```console
 # sudo ./dist-traceroute-slave -help
 Usage:
   -help
-    	display this message
+     display this message
   -log /path/to/file
-    	Logfile location /path/to/file (default "./dt-slave.log")
+     Logfile location /path/to/file (default "./dt-slave.log")
   -loglevel warn, info, debug
-    	Specify loglevel, one of warn, info, debug (default "info")
+     Specify loglevel, one of warn, info, debug (default "info")
   -master hostname
-    	Set the hostname/IP of the master server
+     Set the hostname/IP of the master server
   -master-port port (optional)
-    	Set the listening port (optional) of the master server (default "8990")
+     Set the listening port (optional) of the master server (default "8990")
   -name name
-    	Unique name of this slave used on master for authentication and storage of results
+     Unique name of this slave used on master for authentication and storage of results
   -passwd secret
-    	Shared secret for slave on master
+     Shared secret for slave on master
   -zDebugResults
-    	Generate fake results, e.g. when run without root permissions
+     Generate fake results, e.g. when run without root permissions
 ```
 
 Example:
-```
-# sudo ./dist-traceroute-slave -master=localhost -name=slave1 -passwd=1234
+
+```console
+# sudo ./dist-traceroute-slave -master localhost -name slave1 -passwd 1234
 ```
