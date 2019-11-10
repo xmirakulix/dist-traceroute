@@ -15,9 +15,9 @@
         </v-list-item>
         <v-list-item @click="doAlert('contact')">
           <v-list-item-action>
-            <v-icon>fas fa-envelope</v-icon>
+            <v-icon>fas fa-history</v-icon>
           </v-list-item-action>
-          <v-list-item-title>Contact</v-list-item-title>
+          <v-list-item-title>Trace Results</v-list-item-title>
         </v-list-item>
       </v-list>
     </v-navigation-drawer>
@@ -25,7 +25,12 @@
     <v-content>
       <!-- Header -->
       <v-container>
-        <h1>dist-traceroute Master</h1>
+        <h1>
+          dist-traceroute Master
+          <v-icon style="font-size: 1rem;" @click="fetchStatus()"
+            >fas fa-sync</v-icon
+          >
+        </h1>
         <p>Hi, this is the webservice of the dist-traceroute master service.</p>
         <p>Uptime: {{ getStatus.Uptime }}</p>
       </v-container>

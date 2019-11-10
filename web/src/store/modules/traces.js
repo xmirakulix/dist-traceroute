@@ -9,9 +9,11 @@ const getters = {
 };
 
 const actions = {
-  async fetchTraces({ commit }) {
+  async fetchTraces({ commit }, limit) {
     try {
-      const response = await axios.get("http://localhost:8990/api/traces");
+      const response = await axios.get(
+        `http://localhost:8990/api/traces?_limit=${limit}`
+      );
       commit("setTraces", response.data);
     } catch (error) {
       console.log("Error caught: " + error);

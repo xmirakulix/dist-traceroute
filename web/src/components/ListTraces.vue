@@ -8,7 +8,16 @@
       :hide-default-footer="true"
       :disable-sort="true"
       class="elevation-1"
-    ></v-data-table>
+    >
+      <template v-slot:item.HopCnt="{ item }">
+        <v-tooltip bottom>
+          <template v-slot:activator="{ on }">
+            <span v-on="on">{{ item.HopCnt }}</span>
+          </template>
+          <span>{{ item.DetailJSON }}</span>
+        </v-tooltip>
+      </template>
+    </v-data-table>
   </div>
 </template>
 
@@ -36,7 +45,7 @@ export default {
     ...mapGetters(["getTraces"])
   },
   created() {
-    this.fetchTraces();
+    this.fetchTraces(3);
   }
 };
 </script>
