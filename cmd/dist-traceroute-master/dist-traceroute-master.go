@@ -10,6 +10,7 @@ import (
 	"io/ioutil"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	valid "github.com/asaskevich/govalidator"
@@ -94,16 +95,22 @@ func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpDefaultHandler: Received API 'status' request")
+		log.Debugf("httpDefaultHandler: Received API 'status' request, limit: <%v>", req.URL.Query().Get("_limit"))
+
+		limit, _ := strconv.Atoi(req.URL.Query().Get("_limit"))
 
 		lastResultsQuery := `
-		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, t.dtStart, COUNT(h.nHopId) AS nHopCount, 
+		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.nHopId) AS nHopCount, 
 			json_group_object(h.nHopIndex, json_object('IP', h.strHopIPAddress, 'DNS', h.strHopDNSName, 'Duration', h.dDurationSec)) AS strHopDetails
 		FROM t_Traceroutes t LEFT JOIN t_Hops h ON t.nTracerouteId = h.nTracerouteId
 		GROUP BY t.nTracerouteId
 		ORDER BY t.nTracerouteId DESC
-		LIMIT 5;
 		`
+
+		if limit != 0 {
+			lastResultsQuery += "LIMIT " + strconv.Itoa(limit)
+		}
+
 		var resRows *sql.Rows
 		var err error
 
