@@ -17,8 +17,9 @@ const routes = [
       import(/* webpackChunkName: "history" */ "@/views/TraceHistory.vue")
   },
   {
-    path: "/graph",
+    path: "/graph/:id",
     name: "graph",
+    props: true,
     component: () =>
       import(/* webpackChunkName: "graph" */ "@/views/TraceGraph.vue")
   }

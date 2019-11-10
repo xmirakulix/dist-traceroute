@@ -19,7 +19,7 @@
           </v-list-item-action>
           <v-list-item-title>Trace Results</v-list-item-title>
         </v-list-item>
-        <v-list-item :to="{ name: 'graph' }">
+        <v-list-item :to="{ name: 'graph', params: { id: -1 } }">
           <v-list-item-action>
             <v-icon>fas fa-project-diagram</v-icon>
           </v-list-item-action>
