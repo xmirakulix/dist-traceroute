@@ -9,6 +9,28 @@
       :disable-sort="true"
       class="elevation-1"
     >
+      <!-- insert graph link -->
+      <template v-slot:item.DestName="{ item }">
+        <v-tooltip bottom>
+          <template v-slot:activator="{ on }">
+            <v-icon
+              v-on="on"
+              small
+              class="mr-1"
+              color="primary"
+              @click="
+                $router.push({ name: 'graph', params: { dest: item.DestName } })
+              "
+            >
+              fas fa-project-diagram
+            </v-icon>
+          </template>
+          <span>View graph...</span>
+        </v-tooltip>
+        <span>{{ item.DestName }}</span>
+      </template>
+
+      <!-- insert details tooltip -->
       <template v-slot:item.HopCnt="{ item }">
         <v-tooltip bottom>
           <template v-slot:activator="{ on }">

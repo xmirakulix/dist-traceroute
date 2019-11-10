@@ -61,7 +61,7 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 
 func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpDefaultHandler: Received API 'status' request")
+		log.Debug("httpAPIHandlerStatus: Received API 'status' request")
 
 		var timeSinceSlaveCfg string
 		if lastTransmittedSlaveConfigTime.IsZero() {
@@ -87,15 +87,62 @@ func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := writer.Write(resJSON); err != nil {
-			log.Warn("httpDefaultHandler: Couldn't write response: ", err)
+			log.Warn("httpAPIHandlerStatus: Couldn't write response: ", err)
 		}
 
+		log.Debug("httpAPIHandlerStatus: Replying with success.")
+	}
+}
+
+func httpAPIHandlerGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debugf("httpAPIHandlerGraphData: Received API 'status' request, dest: <%v>", req.URL.Query().Get("_dest"))
+
+		dest := req.URL.Query().Get("_dest")
+		if len(dest) < 1 {
+			log.Info("httpAPIHandlerGraphData: Parameter _dest missing or empty, returning error.")
+			http.Error(writer, "Parameter _dest missing or empty", http.StatusBadRequest)
+			return
+		}
+
+		query := `
+			SELECT json_group_array(json_array(prevHopAddress, strHopIPAddress, cnt, avgDuration)) as links
+			FROM (
+			SELECT h.nHopIndex, COALESCE(prev.strHopIPAddress, '0') as prevHopAddress,
+			h.strHopDNSName,
+			h.strHopIPAddress, COUNT(*) as cnt, AVG(h.dDurationSec)*1000 as avgDuration,
+			h.strHopIPAddress || h.nHopIndex || COALESCE(prev.strHopIPAddress, '') AS LinkId,
+			t.strDestination
+
+			FROM t_Hops h JOIN t_Traceroutes t ON t.nTracerouteId = h.nTracerouteId
+			LEFT JOIN t_Hops prev ON h.nPreviousHopId = prev.nHopId
+
+			WHERE t.strDestination = ? 
+
+			GROUP BY h.strHopIPAddress, h.nHopIndex, prevHopAddress
+			ORDER BY h.nHopIndex) t
+			GROUP BY t.strDestination 
+			`
+
+		resRow := db.QueryRow(query, dest)
+		var result string
+		if err := resRow.Scan(&result); err != nil {
+			log.Debug("httpAPIHandlerGraphData: No data found, returning empty...")
+			result = "{}"
+		}
+
+		writer.Header().Add("Access-Control-Allow-Origin", "*")
+		if _, err := io.WriteString(writer, result); err != nil {
+			log.Warn("httpAPIHandlerGraphData: Couldn't write response: ", err)
+		}
+
+		log.Debug("httpAPIHandlerGraphData: Replying with success.")
 	}
 }
 
 func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debugf("httpDefaultHandler: Received API 'status' request, limit: <%v>", req.URL.Query().Get("_limit"))
+		log.Debugf("httpAPIHandlerTraces: Received API 'status' request, limit: <%v>", req.URL.Query().Get("_limit"))
 
 		limit, _ := strconv.Atoi(req.URL.Query().Get("_limit"))
 
@@ -115,7 +162,7 @@ func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		var err error
 
 		if resRows, err = db.Query(lastResultsQuery); err != nil {
-			log.Warn("httpDefaultHandler: Couldn't get last results from DB, Error: ", err)
+			log.Warn("httpAPIHandlerTraces: Couldn't get last results from DB, Error: ", err)
 			http.Error(writer, "Couldn't get last results from DB", http.StatusInternalServerError)
 			return
 		}
@@ -134,7 +181,7 @@ func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		for resRows.Next() {
 			var t trace
 			if err = resRows.Scan(&t.TraceID, &t.SlaveName, &t.DestName, &t.StartTime, &t.HopCnt, &t.DetailJSON); err != nil {
-				log.Warn("httpDefaultHandler: Couldn't read DB result set, Error: ", err)
+				log.Warn("httpAPIHandlerTraces: Couldn't read DB result set, Error: ", err)
 				http.Error(writer, "Couldn't read DB result set", http.StatusInternalServerError)
 				return
 			}
@@ -151,8 +198,10 @@ func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := writer.Write(response); err != nil {
-			log.Warn("httpDefaultHandler: Couldn't write response: ", err)
+			log.Warn("httpAPIHandlerTraces: Couldn't write response: ", err)
 		}
+
+		log.Debug("httpAPIHandlerTraces: Replying with success.")
 	}
 }
 
@@ -432,6 +481,7 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 	// handle api requests from webinterface
 	router.HandleFunc("/api/status", httpAPIHandlerStatus(ppCfg))
 	router.HandleFunc("/api/traces", httpAPIHandlerTraces(ppCfg))
+	router.HandleFunc("/api/graph", httpAPIHandlerGraphData(ppCfg))
 
 	// handle everything else
 	router.HandleFunc("/", httpDefaultHandler(ppCfg))

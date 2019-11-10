@@ -1,11 +1,13 @@
 import axios from "axios";
 
 const state = {
-  traces: []
+  traces: [],
+  graphData: []
 };
 
 const getters = {
-  getTraces: state => state.traces
+  getTraces: state => state.traces,
+  getGraphData: state => state.graphData
 };
 
 const actions = {
@@ -18,11 +20,24 @@ const actions = {
     } catch (error) {
       console.log("Error caught: " + error);
     }
+  },
+
+  async fetchGraphData({ commit }, destination) {
+    try {
+      const response = await axios.get(
+        `http://localhost:8990/api/graph?_dest=${destination}`
+      );
+      commit("setGraphData", response.data);
+    } catch (error) {
+      console.log("Error caught: " + error);
+    }
   }
 };
 
 const mutations = {
-  setTraces: (state, traces) => (state.traces = traces)
+  setTraces: (state, traces) => (state.traces = traces),
+
+  setGraphData: (state, graphData) => (state.graphData = graphData)
 };
 
 export default {

@@ -7,19 +7,22 @@
 
     <v-navigation-drawer app clipped permanent expand-on-hover>
       <v-list>
-        <v-list-item :to="{ name: 'home' }" exact>
+        <v-list-item :to="{ name: 'home' }" exact color="primary">
           <v-list-item-action>
             <v-icon>fas fa-home</v-icon>
           </v-list-item-action>
           <v-list-item-title>Home</v-list-item-title>
         </v-list-item>
-        <v-list-item :to="{ name: 'history' }">
+        <v-list-item :to="{ name: 'history' }" color="primary">
           <v-list-item-action>
             <v-icon>fas fa-history</v-icon>
           </v-list-item-action>
           <v-list-item-title>Trace Results</v-list-item-title>
         </v-list-item>
-        <v-list-item :to="{ name: 'graph', params: { id: -1 } }">
+        <v-list-item
+          :to="{ name: 'graph', params: { dest: -1 } }"
+          color="primary"
+        >
           <v-list-item-action>
             <v-icon>fas fa-project-diagram</v-icon>
           </v-list-item-action>

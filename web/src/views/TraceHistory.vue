@@ -13,6 +13,7 @@ export default {
   name: "TraceHistory",
 
   components: { ListTraces },
+
   computed: mapGetters(["getStatus"]),
 
   methods: mapActions(["fetchStatus"]),
