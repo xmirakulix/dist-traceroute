@@ -7,13 +7,13 @@
 
     <v-navigation-drawer app clipped permanent expand-on-hover>
       <v-list>
-        <v-list-item @click="doAlert('home')">
+        <v-list-item @click="goTo('/')">
           <v-list-item-action>
             <v-icon>fas fa-home</v-icon>
           </v-list-item-action>
           <v-list-item-title>Home</v-list-item-title>
         </v-list-item>
-        <v-list-item @click="doAlert('contact')">
+        <v-list-item @click="goTo('/history')">
           <v-list-item-action>
             <v-icon>fas fa-history</v-icon>
           </v-list-item-action>
@@ -23,41 +23,7 @@
     </v-navigation-drawer>
 
     <v-content>
-      <!-- Header -->
-      <v-container>
-        <h1>
-          dist-traceroute Master
-          <v-icon style="font-size: 1rem;" @click="fetchStatus()"
-            >fas fa-sync</v-icon
-          >
-        </h1>
-        <p>Hi, this is the webservice of the dist-traceroute master service.</p>
-        <p>Uptime: {{ getStatus.Uptime }}</p>
-      </v-container>
-
-      <!-- List last received traces -->
-      <v-container>
-        <ListTraces />
-      </v-container>
-      <!-- current master config -->
-      <v-container>
-        <h2>Currently loaded master config</h2>
-        <code class="d-block">{{ getStatus.CurrentMasterConfig }}</code>
-      </v-container>
-
-      <!-- last slave action -->
-      <v-container>
-        <h2>Last transmitted slave config</h2>
-        <code class="d-block">{{ getStatus.LastSlaveConfig }}</code>
-        <p>
-          {{
-            getStatus.LastSlaveConfigTime == "" ||
-            getStatus.LastSlaveConfigTime == undefined
-              ? ""
-              : "(" + getStatus.LastSlaveConfigTime + ")"
-          }}
-        </p>
-      </v-container>
+      <router-view />
     </v-content>
 
     <v-footer color="primary" app>
@@ -67,8 +33,7 @@
 </template>
 
 <script>
-import { mapGetters, mapActions } from "vuex";
-import ListTraces from "./components/ListTraces.vue";
+import router from "./router";
 
 export default {
   name: "app",
@@ -77,21 +42,8 @@ export default {
       drawer: null
     };
   },
-
-  components: {
-    ListTraces
-  },
-
-  computed: mapGetters(["getStatus"]),
-
   methods: {
-    ...mapActions(["fetchStatus"]),
-
-    doAlert: text => console.log(text)
-  },
-
-  created() {
-    this.fetchStatus();
+    goTo: url => router.push(url).catch(() => {})
   }
 };
 </script>
