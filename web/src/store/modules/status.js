@@ -1,19 +1,17 @@
 import axios from "axios";
 
 const state = {
-  uptime: "100s"
+  status: {}
 };
 
 const getters = {
-  uptime: state => state.uptime
+  status: state => state.status
 };
 
 const actions = {
-  async fetchUptime({ commit }) {
-    const response = await axios.get(
-      "https://jsonplaceholder.typicode.com/todos/1"
-    );
-    commit("setUptime", response.data.title);
+  async fetchStatus({ commit }) {
+    const response = await axios.get("http://localhost:8990/api/status");
+    commit("setStatus", response.data);
   },
 
   // eslint-disable-next-line no-unused-vars
@@ -31,7 +29,7 @@ const actions = {
 };
 
 const mutations = {
-  setUptime: (state, uptime) => (state.uptime = uptime),
+  setStatus: (state, status) => (state.status = status),
 
   newSlave: (state, data) => console.log(data)
 };

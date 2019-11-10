@@ -1,9 +1,9 @@
 import Vuex from "vuex";
 import Vue from "vue";
-import overview from "./modules/overview";
+import Status from "./modules/status";
 
 Vue.use(Vuex);
 
 export default new Vuex.Store({
-  modules: { overview }
+  modules: { Status }
 });

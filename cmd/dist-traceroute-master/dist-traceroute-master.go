@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"flag"
 	"io"
@@ -10,12 +11,9 @@ import (
 	"net/http"
 	"os"
 	"time"
-)
 
-import (
-	"database/sql"
-	"fmt"
 	valid "github.com/asaskevich/govalidator"
+
 	ghandlers "github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
@@ -60,14 +58,9 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 	return false
 }
 
-func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Info("httpDefaultHandler: Received request for base/unknown URL: ", req.URL)
-
-		var err error
-
-		pCfg := *ppCfg
-		masterCfgJSON, _ := json.MarshalIndent(pCfg.MasterConfig, "", "	")
+		log.Debug("httpDefaultHandler: Received API 'status' request")
 
 		var timeSinceSlaveCfg string
 		if lastTransmittedSlaveConfigTime.IsZero() {
@@ -76,69 +69,93 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			timeSinceSlaveCfg = time.Since(lastTransmittedSlaveConfigTime).Truncate(time.Second).String() + " ago"
 		}
 
-		lastResultsQuery := `
-			SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, t.dtStart, COUNT(h.nHopId) AS nHopCount, 
-				json_group_object(h.nHopIndex, json_object('IP', h.strHopIPAddress, 'DNS', h.strHopDNSName, 'Duration', h.dDurationSec)) AS strHopDetails
-			FROM t_Traceroutes t LEFT JOIN t_Hops h ON t.nTracerouteId = h.nTracerouteId
-			GROUP BY t.nTracerouteId
-			ORDER BY t.nTracerouteId DESC
-			LIMIT 5;
-			`
-		var resRows *sql.Rows
-		var resTableRows string
+		pCfg := *ppCfg
+		response := struct {
+			Uptime              string
+			CurrentMasterConfig disttrace.MasterConfig
+			LastSlaveConfigTime string
+			LastSlaveConfig     string
+		}{
+			disttrace.GetUptime().Truncate(time.Second).String(),
+			*pCfg.MasterConfig,
+			timeSinceSlaveCfg,
+			lastTransmittedSlaveConfig,
+		}
 
-		resTableHeader := `
-			<tr>
-				<th>nTracerouteId</th>	
-				<th>strOriginSlave</th>	
-				<th>strDestination</th>	
-				<th>dtStart</th>	
-				<th>nHopCount</th>	
-			</tr>
+		resJSON, _ := json.MarshalIndent(response, "", "	")
+
+		writer.Header().Add("Access-Control-Allow-Origin", "*")
+		if _, err := writer.Write(resJSON); err != nil {
+			log.Warn("httpDefaultHandler: Couldn't write response: ", err)
+		}
+
+	}
+}
+
+func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debug("httpDefaultHandler: Received API 'status' request")
+
+		lastResultsQuery := `
+		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, t.dtStart, COUNT(h.nHopId) AS nHopCount, 
+			json_group_object(h.nHopIndex, json_object('IP', h.strHopIPAddress, 'DNS', h.strHopDNSName, 'Duration', h.dDurationSec)) AS strHopDetails
+		FROM t_Traceroutes t LEFT JOIN t_Hops h ON t.nTracerouteId = h.nTracerouteId
+		GROUP BY t.nTracerouteId
+		ORDER BY t.nTracerouteId DESC
+		LIMIT 5;
 		`
+		var resRows *sql.Rows
+		var err error
 
 		if resRows, err = db.Query(lastResultsQuery); err != nil {
 			log.Warn("httpDefaultHandler: Couldn't get last results from DB, Error: ", err)
-			resTableRows = "<tr><td>Couldn't read results from DB</td></tr>"
-		} else {
-			for resRows.Next() {
-				var traceID, hopCnt int64
-				var slaveName, destName, detailJSON string
-				var startTime string
-
-				if err = resRows.Scan(&traceID, &slaveName, &destName, &startTime, &hopCnt, &detailJSON); err != nil {
-					log.Warn("httpDefaultHandler: Couldn't read result set, Error: ", err)
-					resTableRows = "<tr><td>Couldn't read results from DB</td></tr>"
-					break
-				}
-
-				resTableRows +=
-					"<tr>" +
-						"<td>" + fmt.Sprintf("%v", traceID) + "</td>" +
-						"<td>" + slaveName + "</td>" +
-						"<td>" + destName + "</td>" +
-						"<td>" + startTime + "</td>" +
-						"<td title='" + detailJSON + "'>" + fmt.Sprintf("%v", hopCnt) + "</td>" +
-						"</tr>"
-			}
+			http.Error(writer, "Couldn't get last results from DB", http.StatusInternalServerError)
+			return
 		}
+
+		type trace struct {
+			TraceID    int64
+			HopCnt     int64
+			SlaveName  string
+			DestName   string
+			DetailJSON string
+			StartTime  string
+		}
+
+		rows := []trace{}
+
+		for resRows.Next() {
+			var t trace
+			if err = resRows.Scan(&t.TraceID, &t.SlaveName, &t.DestName, &t.StartTime, &t.HopCnt, &t.DetailJSON); err != nil {
+				log.Warn("httpDefaultHandler: Couldn't read DB result set, Error: ", err)
+				http.Error(writer, "Couldn't read DB result set", http.StatusInternalServerError)
+				return
+			}
+			rows = append(rows, t)
+		}
+
 		resRows.Close()
 
-		response :=
-			"<html>" +
-				"<title>dist-traceroute Master</title> " +
-				"<h1>dist-traceroute Master</h1>" +
-				"Hi, this is the webservice of the dist-traceroute master service.<br/>" +
-				"<br />" +
-				"Uptime: " + disttrace.GetUptime().Truncate(time.Second).String() + "<br /><br />" +
-				"Last results received: <table>" + resTableHeader + resTableRows + "</table><br /><br />" +
-				"Currently loaded master config: <pre>" + string(masterCfgJSON) + "</pre> <br />" +
-				"Last transmitted slave config: " + timeSinceSlaveCfg + "<pre>" + lastTransmittedSlaveConfig + "</pre> <br />" +
-				"</html>"
+		var response []byte
+		if response, err = json.MarshalIndent(rows, "", "	"); err != nil {
+			http.Error(writer, err.Error(), http.StatusInternalServerError)
+			return
+		}
 
-		if _, err = io.WriteString(writer, response); err != nil {
+		writer.Header().Add("Access-Control-Allow-Origin", "*")
+		if _, err := writer.Write(response); err != nil {
 			log.Warn("httpDefaultHandler: Couldn't write response: ", err)
 		}
+	}
+}
+
+func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Info("httpDefaultHandler: Received request for base/unknown URL, returning 'Not Found': ", req.URL)
+
+		// reply with error
+		http.Error(writer, "Not found", http.StatusNotFound)
+		return
 	}
 }
 
@@ -404,6 +421,10 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 
 	// handle config requests from slaves
 	router.HandleFunc("/config/", httpTxConfigHandler(targetConfigFile, ppCfg))
+
+	// handle api requests from webinterface
+	router.HandleFunc("/api/status", httpAPIHandlerStatus(ppCfg))
+	router.HandleFunc("/api/traces", httpAPIHandlerTraces(ppCfg))
 
 	// handle everything else
 	router.HandleFunc("/", httpDefaultHandler(ppCfg))

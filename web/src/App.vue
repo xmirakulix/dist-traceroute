@@ -26,7 +26,7 @@
       <v-content>
         <h1>dist-traceroute Master</h1>
         <p>Hi, this is the webservice of the dist-traceroute master service.</p>
-        <p>Uptime: {{ uptime }}</p>
+        <p>Uptime: {{ status.Uptime }}</p>
 
         <h2>Last results received</h2>
         <table>
@@ -49,11 +49,19 @@
         </table>
 
         <h2>Currently loaded master config</h2>
-        <pre>" + string(masterCfgJSON) + "</pre>
+        <code class="d-block">{{ status.CurrentMasterConfig }}</code>
 
         <h2>Last transmitted slave config</h2>
-        <p>Time: " + timeSinceSlaveCfg + "</p>
-        <pre>" + lastTransmittedSlaveConfig + "</pre>
+
+        <code class="d-block">{{ status.LastSlaveConfig }}</code>
+        <p>
+          {{
+            status.LastSlaveConfigTime == "" ||
+            status.LastSlaveConfigTime == undefined
+              ? ""
+              : "(" + status.LastSlaveConfigTime + ")"
+          }}
+        </p>
 
         <AddSlave />
       </v-content>
@@ -81,16 +89,16 @@ export default {
     AddSlave
   },
 
-  computed: mapGetters(["uptime"]),
+  computed: mapGetters(["status"]),
 
   methods: {
-    ...mapActions(["fetchUptime"]),
+    ...mapActions(["fetchStatus"]),
 
     doAlert: text => console.log(text)
   },
 
   created() {
-    this.fetchUptime();
+    this.fetchStatus();
   }
 };
 </script>
