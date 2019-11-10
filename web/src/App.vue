@@ -7,17 +7,23 @@
 
     <v-navigation-drawer app clipped permanent expand-on-hover>
       <v-list>
-        <v-list-item @click="goTo('/')">
+        <v-list-item :to="{ name: 'home' }" exact>
           <v-list-item-action>
             <v-icon>fas fa-home</v-icon>
           </v-list-item-action>
           <v-list-item-title>Home</v-list-item-title>
         </v-list-item>
-        <v-list-item @click="goTo('/history')">
+        <v-list-item :to="{ name: 'history' }">
           <v-list-item-action>
             <v-icon>fas fa-history</v-icon>
           </v-list-item-action>
           <v-list-item-title>Trace Results</v-list-item-title>
+        </v-list-item>
+        <v-list-item :to="{ name: 'graph' }">
+          <v-list-item-action>
+            <v-icon>fas fa-project-diagram</v-icon>
+          </v-list-item-action>
+          <v-list-item-title>Trace Graph</v-list-item-title>
         </v-list-item>
       </v-list>
     </v-navigation-drawer>
@@ -33,8 +39,6 @@
 </template>
 
 <script>
-import router from "./router";
-
 export default {
   name: "app",
   data: function() {
@@ -42,10 +46,8 @@ export default {
       drawer: null
     };
   },
-  methods: {
-    goTo: url => router.push(url).catch(() => {})
-  }
+  methods: {}
 };
 </script>
 
-<style scope></style>
+<style scoped></style>

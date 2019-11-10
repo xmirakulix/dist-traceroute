@@ -14,7 +14,13 @@ const routes = [
     path: "/history",
     name: "history",
     component: () =>
-      import(/* webpackChunkName: "about" */ "@/views/TraceHistory.vue")
+      import(/* webpackChunkName: "history" */ "@/views/TraceHistory.vue")
+  },
+  {
+    path: "/graph",
+    name: "graph",
+    component: () =>
+      import(/* webpackChunkName: "graph" */ "@/views/TraceGraph.vue")
   }
 ];
 
