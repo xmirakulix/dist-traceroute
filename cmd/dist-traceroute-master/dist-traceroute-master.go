@@ -64,10 +64,8 @@ func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		log.Debug("httpAPIHandlerStatus: Received API 'status' request")
 
 		var timeSinceSlaveCfg string
-		if lastTransmittedSlaveConfigTime.IsZero() {
-			timeSinceSlaveCfg = ""
-		} else {
-			timeSinceSlaveCfg = time.Since(lastTransmittedSlaveConfigTime).Truncate(time.Second).String() + " ago"
+		if !lastTransmittedSlaveConfigTime.IsZero() {
+			timeSinceSlaveCfg = time.Since(lastTransmittedSlaveConfigTime).Truncate(time.Second).String()
 		}
 
 		pCfg := *ppCfg

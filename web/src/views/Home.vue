@@ -30,7 +30,7 @@
           getStatus.LastSlaveConfigTime == "" ||
           getStatus.LastSlaveConfigTime == undefined
             ? ""
-            : "(" + getStatus.LastSlaveConfigTime + ")"
+            : "(" + getStatus.LastSlaveConfigTime + " ago)"
         }}
       </p>
     </v-container>
