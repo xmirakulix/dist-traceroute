@@ -32,7 +32,9 @@
     </v-navigation-drawer>
 
     <v-content>
-      <router-view />
+      <v-container>
+        <router-view />
+      </v-container>
     </v-content>
 
     <v-footer color="primary" app>

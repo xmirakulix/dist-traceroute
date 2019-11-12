@@ -1,30 +1,29 @@
 <template>
   <div class="home">
     <!-- Header -->
+    <h1>
+      dist-traceroute Master
+      <v-icon style="font-size: 1rem;" @click="fetchStatus()"
+        >fas fa-sync</v-icon
+      >
+    </h1>
     <v-container>
-      <h1>
-        dist-traceroute Master
-        <v-icon style="font-size: 1rem;" @click="fetchStatus()"
-          >fas fa-sync</v-icon
-        >
-      </h1>
       <p>Hi, this is the webservice of the dist-traceroute master service.</p>
-      <p>Uptime: {{ getStatus.Uptime }}</p>
+      <p class="mb-0">Uptime: {{ getStatus.Uptime }}</p>
     </v-container>
 
     <!-- List last received traces -->
-    <v-container>
-      <ListTraces />
-    </v-container>
+    <ListTraces />
+
     <!-- current master config -->
+    <h2 class="mt-6">Currently loaded master config</h2>
     <v-container>
-      <h2>Currently loaded master config</h2>
       <code class="d-block">{{ getStatus.CurrentMasterConfig }}</code>
     </v-container>
 
     <!-- last slave action -->
+    <h2 class="mt-6">Last transmitted slave config</h2>
     <v-container>
-      <h2>Last transmitted slave config</h2>
       <code class="d-block">{{ getStatus.LastSlaveConfig }}</code>
       <p>
         {{

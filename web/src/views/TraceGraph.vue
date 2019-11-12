@@ -1,10 +1,10 @@
 <template>
   <div>
     <h1>Trace Graph for {{ dest }}</h1>
-    <v-card>
+    <v-card class="my-6">
       <v-container>
-        <v-row justify="end" no-gutters>
-          <v-col cols="4">
+        <v-row justify="end" dense>
+          <v-col md="4" sm="6" xs="12">
             <v-slider
               hide-details
               :label="'Hide first ' + skip + ' hops'"
@@ -19,7 +19,7 @@
             </v-slider>
           </v-col>
         </v-row>
-        <v-row>
+        <v-row dense>
           <v-col>
             <GChart
               v-if="dest != '-1'"

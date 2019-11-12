@@ -1,8 +1,8 @@
 <template>
-  <v-container>
+  <div>
     <h1>History of traces</h1>
     <ListTraces />
-  </v-container>
+  </div>
 </template>
 
 <script>
