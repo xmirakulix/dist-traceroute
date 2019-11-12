@@ -14,7 +14,7 @@ const actions = {
   async fetchTraces({ commit }, limit) {
     try {
       const response = await axios.get(
-        `http://localhost:8990/api/traces?_limit=${limit}`
+        `http://localhost:8990/api/traces?limit=${limit}`
       );
       commit("setTraces", response.data);
     } catch (error) {
@@ -22,10 +22,10 @@ const actions = {
     }
   },
 
-  async fetchGraphData({ commit }, destination) {
+  async fetchGraphData({ commit }, payload) {
     try {
       const response = await axios.get(
-        `http://localhost:8990/api/graph?_dest=${destination}`
+        `http://localhost:8990/api/graph?dest=${payload.dest}&skip=${payload.skip}`
       );
       commit("setGraphData", response.data);
     } catch (error) {

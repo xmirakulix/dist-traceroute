@@ -96,35 +96,38 @@ func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 func httpAPIHandlerGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debugf("httpAPIHandlerGraphData: Received API 'status' request, dest: <%v>", req.URL.Query().Get("_dest"))
+		dest := req.URL.Query().Get("dest")
+		skip, _ := strconv.Atoi(req.URL.Query().Get("skip"))
 
-		dest := req.URL.Query().Get("_dest")
+		log.Debugf("httpAPIHandlerGraphData: Received API 'status' request, dest: <%v>, skip: <%v>", dest, skip)
+
 		if len(dest) < 1 {
-			log.Info("httpAPIHandlerGraphData: Parameter _dest missing or empty, returning error.")
-			http.Error(writer, "Parameter _dest missing or empty", http.StatusBadRequest)
+			log.Info("httpAPIHandlerGraphData: Parameter dest missing or empty, returning error.")
+			http.Error(writer, "Parameter dest missing or empty", http.StatusBadRequest)
 			return
 		}
 
 		query := `
 			SELECT json_group_array(json_array(prevHopAddress, strHopIPAddress, cnt, avgDuration)) as links
 			FROM (
-			SELECT h.nHopIndex, COALESCE(prev.strHopIPAddress, '0') as prevHopAddress,
-			h.strHopDNSName,
-			h.strHopIPAddress, COUNT(*) as cnt, AVG(h.dDurationSec)*1000 as avgDuration,
-			h.strHopIPAddress || h.nHopIndex || COALESCE(prev.strHopIPAddress, '') AS LinkId,
-			t.strDestination
+				SELECT h.nHopIndex, COALESCE(prev.strHopIPAddress, '0') as prevHopAddress,
+				h.strHopDNSName,
+				h.strHopIPAddress, COUNT(*) as cnt, AVG(h.dDurationSec)*1000 as avgDuration,
+				h.strHopIPAddress || h.nHopIndex || COALESCE(prev.strHopIPAddress, '') AS LinkId,
+				t.strDestination
 
-			FROM t_Hops h JOIN t_Traceroutes t ON t.nTracerouteId = h.nTracerouteId
-			LEFT JOIN t_Hops prev ON h.nPreviousHopId = prev.nHopId
+				FROM t_Hops h JOIN t_Traceroutes t ON t.nTracerouteId = h.nTracerouteId
+				LEFT JOIN t_Hops prev ON h.nPreviousHopId = prev.nHopId
 
-			WHERE t.strDestination = ? 
+				WHERE t.strDestination = ? AND h.nHopIndex > ?
 
-			GROUP BY h.strHopIPAddress, h.nHopIndex, prevHopAddress
-			ORDER BY h.nHopIndex) t
+				GROUP BY h.strHopIPAddress, h.nHopIndex, prevHopAddress
+				ORDER BY h.nHopIndex
+			) t
 			GROUP BY t.strDestination 
 			`
 
-		resRow := db.QueryRow(query, dest)
+		resRow := db.QueryRow(query, dest, skip)
 		var result string
 		if err := resRow.Scan(&result); err != nil {
 			log.Debug("httpAPIHandlerGraphData: No data found, returning empty...")
@@ -142,9 +145,9 @@ func httpAPIHandlerGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debugf("httpAPIHandlerTraces: Received API 'status' request, limit: <%v>", req.URL.Query().Get("_limit"))
+		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 
-		limit, _ := strconv.Atoi(req.URL.Query().Get("_limit"))
+		log.Debugf("httpAPIHandlerTraces: Received API 'status' request, limit: <%v>", limit)
 
 		lastResultsQuery := `
 		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.nHopId) AS nHopCount, 
