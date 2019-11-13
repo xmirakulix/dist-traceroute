@@ -59,9 +59,9 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 	return false
 }
 
-func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPIStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpAPIHandlerStatus: Received API 'status' request")
+		log.Debug("httpHandleAPIStatus: Received API 'status' request")
 
 		var timeSinceSlaveCfg string
 		if !lastTransmittedSlaveConfigTime.IsZero() {
@@ -85,22 +85,22 @@ func httpAPIHandlerStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := writer.Write(resJSON); err != nil {
-			log.Warn("httpAPIHandlerStatus: Couldn't write response: ", err)
+			log.Warn("httpHandleAPIStatus: Couldn't write response: ", err)
 		}
 
-		log.Debug("httpAPIHandlerStatus: Replying with success.")
+		log.Debug("httpHandleAPIStatus: Replying with success.")
 	}
 }
 
-func httpAPIHandlerGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		dest := req.URL.Query().Get("dest")
 		skip, _ := strconv.Atoi(req.URL.Query().Get("skip"))
 
-		log.Debugf("httpAPIHandlerGraphData: Received API 'status' request, dest: <%v>, skip: <%v>", dest, skip)
+		log.Debugf("httpHandleAPIGraphData: Received API 'status' request, dest: <%v>, skip: <%v>", dest, skip)
 
 		if len(dest) < 1 {
-			log.Info("httpAPIHandlerGraphData: Parameter dest missing or empty, returning error.")
+			log.Info("httpHandleAPIGraphData: Parameter dest missing or empty, returning error.")
 			http.Error(writer, "Parameter dest missing or empty", http.StatusBadRequest)
 			return
 		}
@@ -128,24 +128,24 @@ func httpAPIHandlerGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		resRow := db.QueryRow(query, dest, skip)
 		var result string
 		if err := resRow.Scan(&result); err != nil {
-			log.Debug("httpAPIHandlerGraphData: No data found, returning empty...")
+			log.Debug("httpHandleAPIGraphData: No data found, returning empty...")
 			result = "{}"
 		}
 
 		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := io.WriteString(writer, result); err != nil {
-			log.Warn("httpAPIHandlerGraphData: Couldn't write response: ", err)
+			log.Warn("httpHandleAPIGraphData: Couldn't write response: ", err)
 		}
 
-		log.Debug("httpAPIHandlerGraphData: Replying with success.")
+		log.Debug("httpHandleAPIGraphData: Replying with success.")
 	}
 }
 
-func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 
-		log.Debugf("httpAPIHandlerTraces: Received API 'status' request, limit: <%v>", limit)
+		log.Debugf("httpHandleAPITraceHistory: Received API 'status' request, limit: <%v>", limit)
 
 		lastResultsQuery := `
 		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.nHopId) AS nHopCount, 
@@ -163,7 +163,7 @@ func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		var err error
 
 		if resRows, err = db.Query(lastResultsQuery); err != nil {
-			log.Warn("httpAPIHandlerTraces: Couldn't get last results from DB, Error: ", err)
+			log.Warn("httpHandleAPITraceHistory: Couldn't get last results from DB, Error: ", err)
 			http.Error(writer, "Couldn't get last results from DB", http.StatusInternalServerError)
 			return
 		}
@@ -182,7 +182,7 @@ func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		for resRows.Next() {
 			var t trace
 			if err = resRows.Scan(&t.TraceID, &t.SlaveName, &t.DestName, &t.StartTime, &t.HopCnt, &t.DetailJSON); err != nil {
-				log.Warn("httpAPIHandlerTraces: Couldn't read DB result set, Error: ", err)
+				log.Warn("httpHandleAPITraceHistory: Couldn't read DB result set, Error: ", err)
 				http.Error(writer, "Couldn't read DB result set", http.StatusInternalServerError)
 				return
 			}
@@ -199,10 +199,10 @@ func httpAPIHandlerTraces(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := writer.Write(response); err != nil {
-			log.Warn("httpAPIHandlerTraces: Couldn't write response: ", err)
+			log.Warn("httpHandleAPITraceHistory: Couldn't write response: ", err)
 		}
 
-		log.Debug("httpAPIHandlerTraces: Replying with success.")
+		log.Debug("httpHandleAPITraceHistory: Replying with success.")
 	}
 }
 
@@ -216,9 +216,9 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpRxResultHandler: Received request results, URL: ", req.URL)
+		log.Debug("httpHandleSlaveResults: Received request results, URL: ", req.URL)
 
 		// init vars
 		result := disttrace.TraceResult{}
@@ -227,7 +227,7 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		// decode request
 		err := jsonDecoder.Decode(&result)
 		if err != nil {
-			log.Warn("httpRxResultHandler: Couldn't decode request body into JSON: ", err)
+			log.Warn("httpHandleSlaveResults: Couldn't decode request body into JSON: ", err)
 
 			// create error response
 			response := disttrace.SubmitResult{
@@ -239,7 +239,7 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			var responseJSON []byte
 			if responseJSON, err = json.Marshal(response); err != nil {
 				http.Error(writer, "Error: Couldn't marshal error response into JSON", http.StatusBadRequest)
-				log.Warn("httpRxResultHandler: Error: Couldn't marshal error response into JSON: ", err)
+				log.Warn("httpHandleSlaveResults: Error: Couldn't marshal error response into JSON: ", err)
 				return
 			}
 
@@ -253,13 +253,13 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			return
 		}
 
-		log.Infof("httpRxResultHandler: Received results from slave '%v' for target '%v'. Success: %v, Hops: %v.",
+		log.Infof("httpHandleSlaveResults: Received results from slave '%v' for target '%v'. Success: %v, Hops: %v.",
 			result.Creds.Name, result.Target.Name,
 			result.Success, result.HopCount,
 		)
 
 		if ok, e := disttrace.ValidateTraceResult(result); !ok || e != nil {
-			log.Warn("httpRxResultHandler: Result validation failed, Error: ", e)
+			log.Warn("httpHandleSlaveResults: Result validation failed, Error: ", e)
 			http.Error(writer, "Result validation failed: "+e.Error(), http.StatusBadRequest)
 			return
 		}
@@ -270,14 +270,14 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		errDb = nil
 
 		if tx, errDb = db.Begin(); err != nil {
-			log.Warn("httpRxResultHandler: Error creating database transaction while storing result, Error: ", errDb)
+			log.Warn("httpHandleSlaveResults: Error creating database transaction while storing result, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
 		// catch errors and rollback!
 		defer func() {
 			if errDb != nil {
-				log.Warn("httpRxResultHandler: Caught error during database operations, rolling transaction back!")
+				log.Warn("httpHandleSlaveResults: Caught error during database operations, rolling transaction back!")
 				tx.Rollback()
 			}
 		}()
@@ -289,7 +289,7 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			`)
 		defer traceStmt.Close()
 		if errDb != nil {
-			log.Warn("httpRxResultHandler: Error while preparing database statement, Error: ", errDb)
+			log.Warn("httpHandleSlaveResults: Error while preparing database statement, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
@@ -301,27 +301,27 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			`)
 		defer hopStmt.Close()
 		if errDb != nil {
-			log.Warn("httpRxResultHandler: Error while preparing database statement, Error: ", errDb)
+			log.Warn("httpHandleSlaveResults: Error while preparing database statement, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
 
-		log.Debug("httpRxResultHandler: Finished preparing queries, inserting data...")
+		log.Debug("httpHandleSlaveResults: Finished preparing queries, inserting data...")
 
 		// Insert result info
 		resTrace, errDb := traceStmt.Exec(nil, result.Creds.Name, result.Target.Address, result.DateTime.Format(time.RFC3339), "")
 		if errDb != nil {
-			log.Warn("httpRxResultHandler: Error while inserting result, Error: ", errDb)
+			log.Warn("httpHandleSlaveResults: Error while inserting result, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
 		lastTraceID, errDb := resTrace.LastInsertId()
 		if errDb != nil {
-			log.Warn("httpRxResultHandler: Error while getting last inserted ID of traceroute, Error: ", errDb)
+			log.Warn("httpHandleSlaveResults: Error while getting last inserted ID of traceroute, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
-		log.Debug("httpRxResultHandler: Inserted result with ID: ", lastTraceID)
+		log.Debug("httpHandleSlaveResults: Inserted result with ID: ", lastTraceID)
 
 		// Insert hops info
 		var prevHopID int64
@@ -334,21 +334,21 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), prevHopID)
 			}
 			if errDb != nil {
-				log.Warn("httpRxResultHandler: Error while inserting hop, Error: ", errDb)
+				log.Warn("httpHandleSlaveResults: Error while inserting hop, Error: ", errDb)
 				http.Error(writer, "Database error", http.StatusInternalServerError)
 				return
 			}
 			prevHopID, errDb = resHop.LastInsertId()
 			if errDb != nil {
-				log.Warn("httpRxResultHandler: Error while getting last inserted ID of hop, Error: ", errDb)
+				log.Warn("httpHandleSlaveResults: Error while getting last inserted ID of hop, Error: ", errDb)
 				http.Error(writer, "Database error", http.StatusInternalServerError)
 				return
 			}
 		}
-		log.Debug("httpRxResultHandler: Successfully inserted trace info and hops, commiting transaction...")
+		log.Debug("httpHandleSlaveResults: Successfully inserted trace info and hops, commiting transaction...")
 
 		if errDb = tx.Commit(); errDb != nil {
-			log.Warn("httpRxResultHandler: Error while commiting transaction, Error: ", errDb)
+			log.Warn("httpHandleSlaveResults: Error while commiting transaction, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
@@ -363,30 +363,30 @@ func httpRxResultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		responseJSON, err := json.Marshal(response)
 		if err != nil {
 			http.Error(writer, "Error: Couldn't marshal success response into JSON", http.StatusInternalServerError)
-			log.Warn("httpRxResultHandler: Error: Couldn't marshal success response into JSON: ", err)
+			log.Warn("httpHandleSlaveResults: Error: Couldn't marshal success response into JSON: ", err)
 			return
 		}
 
 		// Success!
 		_, err = io.WriteString(writer, string(responseJSON))
 		if err != nil {
-			log.Warn("httpRxResultHandler: Couldn't write success response: ", err)
+			log.Warn("httpHandleSlaveResults: Couldn't write success response: ", err)
 		}
-		log.Debug("httpRxResultHandler: Replying success.")
+		log.Debug("httpHandleSlaveResults: Replying success.")
 		return
 	}
 }
 
-func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleSlaveConfig(targetConfigFile string, ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpTxConfigHandler: Received request for config, URL: ", req.URL)
+		log.Debug("httpHandleSlaveConfig: Received request for config, URL: ", req.URL)
 
 		var err error
 
 		// read request body
 		var reqBody []byte
 		if reqBody, err = ioutil.ReadAll(req.Body); err != nil {
-			log.Warn("httpTxConfigHandler: Can't read request body, Error: ", err)
+			log.Warn("httpHandleSlaveConfig: Can't read request body, Error: ", err)
 			http.Error(writer, "Can't read request", http.StatusInternalServerError)
 			return
 		}
@@ -394,7 +394,7 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 		// parse JSON from request body
 		var slaveCreds disttrace.SlaveCredentials
 		if err = json.Unmarshal(reqBody, &slaveCreds); err != nil {
-			log.Warn("httpTxConfigHandler: Can't unmarshal request body into slave creds, Error: ", err)
+			log.Warn("httpHandleSlaveConfig: Can't unmarshal request body into slave creds, Error: ", err)
 			http.Error(writer, "Can't unmarshal request body", http.StatusBadRequest)
 			return
 		}
@@ -408,7 +408,7 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 		var body []byte
 		if body, err = ioutil.ReadFile(targetConfigFile); err != nil {
 			http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
-			log.Warn("httpTxConfigHandler: Error: Couldn't read config file: ", err)
+			log.Warn("httpHandleSlaveConfig: Error: Couldn't read config file: ", err)
 			lastTransmittedSlaveConfig = "Error: Couldn't read config file: " + err.Error()
 			lastTransmittedSlaveConfigTime = time.Now()
 			return
@@ -419,7 +419,7 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 		// check if file can be parsed
 		if err = json.Unmarshal(body, &slaveConf); err != nil {
 			http.Error(writer, "Error: Can't parse config", http.StatusInternalServerError)
-			log.Warn("httpTxConfigHandler: Loaded config can't be parsed, Error: ", err)
+			log.Warn("httpHandleSlaveConfig: Loaded config can't be parsed, Error: ", err)
 			lastTransmittedSlaveConfig = "Error: Can't parse config: " + err.Error()
 			lastTransmittedSlaveConfigTime = time.Now()
 			return
@@ -428,7 +428,7 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 		// validate config
 		if ok, e := valid.ValidateStruct(slaveConf); !ok || e != nil {
 			http.Error(writer, "Error: Loaded config is invalid", http.StatusInternalServerError)
-			log.Warn("httpTxConfigHandler: Loaded config is invalid, Error: ", e)
+			log.Warn("httpHandleSlaveConfig: Loaded config is invalid, Error: ", e)
 			lastTransmittedSlaveConfig = "Error: Loaded config is invalid: " + err.Error()
 			lastTransmittedSlaveConfigTime = time.Now()
 			return
@@ -439,20 +439,13 @@ func httpTxConfigHandler(targetConfigFile string, ppCfg **disttrace.GenericConfi
 		lastTransmittedSlaveConfigTime = time.Now()
 		_, err = io.WriteString(writer, string(body))
 		if err != nil {
-			log.Warn("httpTxConfigHandler: Couldn't write success response: ", err)
+			log.Warn("httpHandleSlaveConfig: Couldn't write success response: ", err)
 			return
 		}
 
-		log.Infof("httpTxConfigHandler: Transmitting currently configured targets to slave '%v' for %v targets", slaveCreds.Name, len(slaveConf.Targets))
+		log.Infof("httpHandleSlaveConfig: Transmitting currently configured targets to slave '%v' for %v targets", slaveCreds.Name, len(slaveConf.Targets))
 		return
 	}
-}
-
-func writeAccessLog(handler http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("%s %s %s\n", r.RemoteAddr, r.Method, r.URL)
-		handler.ServeHTTP(w, r)
-	})
 }
 
 func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigFile string) {
@@ -474,15 +467,15 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 	}
 
 	// handle results from slaves
-	router.HandleFunc("/results/", httpRxResultHandler(ppCfg))
+	router.HandleFunc("/results/", httpHandleSlaveResults(ppCfg))
 
 	// handle config requests from slaves
-	router.HandleFunc("/config/", httpTxConfigHandler(targetConfigFile, ppCfg))
+	router.HandleFunc("/config/", httpHandleSlaveConfig(targetConfigFile, ppCfg))
 
 	// handle api requests from webinterface
-	router.HandleFunc("/api/status", httpAPIHandlerStatus(ppCfg))
-	router.HandleFunc("/api/traces", httpAPIHandlerTraces(ppCfg))
-	router.HandleFunc("/api/graph", httpAPIHandlerGraphData(ppCfg))
+	router.HandleFunc("/api/status", httpHandleAPIStatus(ppCfg))
+	router.HandleFunc("/api/traces", httpHandleAPITraceHistory(ppCfg))
+	router.HandleFunc("/api/graph", httpHandleAPIGraphData(ppCfg))
 
 	// handle everything else
 	router.HandleFunc("/", httpDefaultHandler(ppCfg))
