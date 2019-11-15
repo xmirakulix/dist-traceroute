@@ -207,7 +207,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 			cfg := **ppCfg
 
 			// send data to master
-			url := "http://" + cfg.MasterHost + ":" + cfg.MasterPort + "/results/"
+			url := "http://" + cfg.MasterHost + ":" + cfg.MasterPort + "/slave/results"
 
 			httpResp, err := httpClient.Post(url, "application/json", bytes.NewBuffer(resultJSON))
 			if err != nil {

@@ -18,6 +18,7 @@ import (
 
 	ghandlers "github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
+	"github.com/urfave/negroni"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 )
 
@@ -453,6 +454,16 @@ func httpHandleSlaveConfig(targetConfigFile string, ppCfg **disttrace.GenericCon
 	}
 }
 
+func checkAuthentication(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+
+	log.Info("CheckAuthentication: Start...")
+
+	// call next handler
+	next(rw, r)
+
+	log.Info("CheckAuthentication: End...")
+}
+
 func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigFile string) {
 	var err error
 
@@ -465,25 +476,35 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 		log.Panicf("httpServer: Can't open access log '%v', Error: %v", accessLog, err)
 	}
 
-	router := http.NewServeMux()
-	srv := &http.Server{
-		Addr:    ":8990",
-		Handler: ghandlers.CombinedLoggingHandler(accessWriter, router),
-	}
-
-	// handle results from slaves
-	router.HandleFunc("/results/", httpHandleSlaveResults(ppCfg))
-
-	// handle config requests from slaves
-	router.HandleFunc("/config/", httpHandleSlaveConfig(targetConfigFile, ppCfg))
+	// handle slaves
+	slaveRouter := http.NewServeMux()
+	slaveRouter.HandleFunc("/slave/results", httpHandleSlaveResults(ppCfg))
+	slaveRouter.HandleFunc("/slave/config", httpHandleSlaveConfig(targetConfigFile, ppCfg))
 
 	// handle api requests from webinterface
-	router.HandleFunc("/api/status", httpHandleAPIStatus(ppCfg))
-	router.HandleFunc("/api/traces", httpHandleAPITraceHistory(ppCfg))
-	router.HandleFunc("/api/graph", httpHandleAPIGraphData(ppCfg))
+	authRouter := http.NewServeMux()
+	authRouter.HandleFunc("/api/status", httpHandleAPIStatus(ppCfg))
+	authRouter.HandleFunc("/api/traces", httpHandleAPITraceHistory(ppCfg))
+	authRouter.HandleFunc("/api/graph", httpHandleAPIGraphData(ppCfg))
+
+	authHandler := negroni.New()
+	authHandler.Use(negroni.HandlerFunc(checkAuthentication))
+	authHandler.UseHandler(authRouter)
 
 	// handle everything else
-	router.HandleFunc("/", httpDefaultHandler(ppCfg))
+	rootRouter := http.NewServeMux()
+	rootRouter.HandleFunc("/", httpDefaultHandler(ppCfg))
+	rootRouter.Handle("/slave/", slaveRouter)
+	rootRouter.Handle("/api/", authHandler)
+
+	// register middleware for all requests
+	rootHandler := negroni.New()
+	rootHandler.Use(negroni.Wrap(ghandlers.CombinedLoggingHandler(accessWriter, rootRouter)))
+
+	srv := &http.Server{
+		Addr:    ":8990",
+		Handler: rootHandler,
+	}
 
 	// start server...
 	go func() {

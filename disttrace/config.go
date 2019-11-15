@@ -149,7 +149,7 @@ func getMasterConfigFromFile(filePath string, ppCfg **GenericConfig) error {
 func getSlaveConfigFromMaster(masterHost string, masterPort string, slaveCreds SlaveCredentials, ppCfg **GenericConfig) error {
 
 	var slaveCredsJSON, _ = json.Marshal(slaveCreds)
-	var masterURL = "http://" + masterHost + ":" + masterPort + "/config/"
+	var masterURL = "http://" + masterHost + ":" + masterPort + "/slave/config"
 
 	if !valid.IsURL(masterURL) {
 		log.Warnf("getSlaveConfigFromMaster: Cant' get config, master URL '%v' is invalid", masterURL)
