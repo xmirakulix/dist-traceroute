@@ -2,12 +2,16 @@ import axios from "axios";
 
 const state = {
   traces: [],
-  graphData: []
+  graphData: [],
+  graphStart: 0,
+  graphEnd: 0
 };
 
 const getters = {
   getTraces: state => state.traces,
-  getGraphData: state => state.graphData
+  getGraphData: state => state.graphData,
+  getGraphStart: state => state.graphStart,
+  getGraphEnd: state => state.graphEnd
 };
 
 const actions = {
@@ -27,7 +31,9 @@ const actions = {
       const response = await axios.get(
         `http://localhost:8990/api/graph?dest=${payload.dest}&skip=${payload.skip}`
       );
-      commit("setGraphData", response.data);
+      commit("setGraphData", response.data.Data);
+      commit("setGraphStart", response.data.Start);
+      commit("setGraphEnd", response.data.End);
     } catch (error) {
       console.log("Error caught: " + error);
     }
@@ -37,7 +43,9 @@ const actions = {
 const mutations = {
   setTraces: (state, traces) => (state.traces = traces),
 
-  setGraphData: (state, graphData) => (state.graphData = graphData)
+  setGraphData: (state, graphData) => (state.graphData = graphData),
+  setGraphStart: (state, graphStart) => (state.graphStart = graphStart),
+  setGraphEnd: (state, graphEnd) => (state.graphEnd = graphEnd)
 };
 
 export default {

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -96,8 +97,10 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		dest := req.URL.Query().Get("dest")
 		skip, _ := strconv.Atoi(req.URL.Query().Get("skip"))
+		start := req.URL.Query().Get("start")
+		end := req.URL.Query().Get("end")
 
-		log.Debugf("httpHandleAPIGraphData: Received API 'status' request, dest: <%v>, skip: <%v>", dest, skip)
+		log.Debugf("httpHandleAPIGraphData: Received API 'status' request, dest: <%v>, skip: <%v>, start<%v>, end<%v>", dest, skip, start, end)
 
 		if len(dest) < 1 {
 			log.Info("httpHandleAPIGraphData: Parameter dest missing or empty, returning error.")
@@ -106,9 +109,9 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		}
 
 		query := `
-			SELECT json_group_array(json_array(prevHopAddress, strHopIPAddress, cnt, avgDuration)) as links
+			SELECT MIN(dtStart) as start, MAX(dtStart) AS end, json_group_array(json_array(prevHopAddress, strHopIPAddress, cnt, avgDuration)) as links
 			FROM (
-				SELECT h.nHopIndex, COALESCE(prev.strHopIPAddress, '0') as prevHopAddress,
+				SELECT h.nHopIndex, t.dtStart, COALESCE(prev.strHopIPAddress, '0') as prevHopAddress,
 				h.strHopDNSName,
 				h.strHopIPAddress, COUNT(*) as cnt, AVG(h.dDurationSec)*1000 as avgDuration,
 				h.strHopIPAddress || h.nHopIndex || COALESCE(prev.strHopIPAddress, '') AS LinkId,
@@ -126,14 +129,16 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			`
 
 		resRow := db.QueryRow(query, dest, skip)
-		var result string
-		if err := resRow.Scan(&result); err != nil {
+		var resStart, resEnd, resGraphData string
+		if err := resRow.Scan(&resStart, &resEnd, &resGraphData); err != nil {
 			log.Debug("httpHandleAPIGraphData: No data found, returning empty...")
-			result = "{}"
+			resGraphData = "{}"
 		}
 
+		response := fmt.Sprintf("{ \"Start\": \"%v\", \"End\": \"%v\", \"Data\": %v }", resStart, resEnd, resGraphData)
+
 		writer.Header().Add("Access-Control-Allow-Origin", "*")
-		if _, err := io.WriteString(writer, result); err != nil {
+		if _, err := io.WriteString(writer, response); err != nil {
 			log.Warn("httpHandleAPIGraphData: Couldn't write response: ", err)
 		}
 

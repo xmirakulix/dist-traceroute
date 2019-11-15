@@ -1,6 +1,15 @@
 <template>
   <div>
-    <h1>Trace Graph for {{ dest }}</h1>
+    <h1>Trace Graph</h1>
+    <v-container>
+      <p>Destination: {{ dest }}</p>
+      <p>
+        Graph interval:
+        {{ dateFormat(new Date(graphStart), "yyyy-mm-dd HH:MM:ss") }}
+        to
+        {{ dateFormat(new Date(graphEnd), "yyyy-mm-dd HH:MM:ss") }}
+      </p>
+    </v-container>
     <v-card class="my-6">
       <v-container>
         <v-row justify="end" dense>
@@ -40,6 +49,7 @@
 <script>
 import { GChart } from "vue-google-charts";
 import { mapGetters, mapActions } from "vuex";
+import dateFormat from "dateformat";
 
 export default {
   name: "TraceGraph",
@@ -60,7 +70,9 @@ export default {
         }
       },
       dest: "",
-      skip: 0
+      skip: 0,
+
+      interval: [0, 0]
     };
   },
 
@@ -75,17 +87,25 @@ export default {
 
   methods: {
     ...mapActions(["fetchGraphData"]),
+    dateFormat,
 
     setSkipVal(val) {
       this.fetchGraphData({ dest: this.dest, skip: val });
     }
   },
   computed: {
-    ...mapGetters(["getGraphData"]),
+    ...mapGetters(["getGraphData", "getGraphStart", "getGraphEnd"]),
 
     chartData: function() {
       var header = [["From", "To", "Weight", "Latency"]];
       return header.concat(this.getGraphData);
+    },
+
+    graphStart: function() {
+      return new Date(this.getGraphStart).getTime();
+    },
+    graphEnd: function() {
+      return new Date(this.getGraphEnd).getTime();
     }
   }
 };
