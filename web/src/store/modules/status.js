@@ -17,6 +17,7 @@ const getters = {
 
 const actions = {
   async fetchStatus({ commit, rootGetters }) {
+    if (!rootGetters["isAuthorized"]) return;
     try {
       const response = await axios.get(
         "http://localhost:8990/api/status",

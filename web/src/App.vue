@@ -4,12 +4,19 @@
       <!-- <v-app-bar-nav-icon @click.stop="drawer = !drawer"></v-app-bar-nav-icon> -->
       <v-toolbar-title>disttrace Webinterface</v-toolbar-title>
       <v-spacer></v-spacer>
-      <v-btn icon @click="login">
-        <v-icon>fas fa-sign-in-alt</v-icon>
+      <v-btn v-if="isAuthorized" text @click="logout">
+        Sign out
+        <v-icon class="ml-2">fas fa-sign-out-alt</v-icon>
       </v-btn>
     </v-app-bar>
 
-    <v-navigation-drawer app clipped permanent expand-on-hover>
+    <v-navigation-drawer
+      app
+      clipped
+      permanent
+      expand-on-hover
+      v-if="isAuthorized"
+    >
       <v-list>
         <v-list-item :to="{ name: 'home' }" exact color="primary">
           <v-list-item-action>
@@ -36,8 +43,11 @@
     </v-navigation-drawer>
 
     <v-content>
-      <v-container>
+      <v-container v-if="isAuthorized">
         <router-view />
+      </v-container>
+      <v-container v-else>
+        <Login />
       </v-container>
     </v-content>
 
@@ -48,7 +58,8 @@
 </template>
 
 <script>
-import { mapGetters, mapActions } from "vuex";
+import { mapGetters, mapActions, mapMutations } from "vuex";
+import Login from "@/components/Login";
 
 export default {
   name: "app",
@@ -57,15 +68,23 @@ export default {
       drawer: null
     };
   },
+
+  components: { Login },
+
   methods: {
-    ...mapActions(["fetchAuthToken"]),
+    ...mapActions(["fetchAuthToken", "removeAuth"]),
+    ...mapMutations(["unsetToken"]),
 
     login: function() {
       this.fetchAuthToken({ user: "admin", password: "123" });
+    },
+    logout: function() {
+      this.unsetToken();
     }
   },
+
   computed: {
-    ...mapGetters(["getAuthState"])
+    ...mapGetters(["getAuthClaims", "isAuthorized"])
   }
 };
 </script>

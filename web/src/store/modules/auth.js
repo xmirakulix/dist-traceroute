@@ -1,8 +1,10 @@
 import axios from "axios";
+import jwtDecode from "jwt-decode";
 
 const state = () => {
   return {
-    token: "123"
+    token: "",
+    claims: {}
   };
 };
 
@@ -11,25 +13,43 @@ const getters = {
     return {
       headers: { Authorization: "Bearer " + state.token }
     };
-  }
+  },
+
+  getAuthClaims: state => state.claims,
+
+  isAuthorized: state => state.token !== ""
 };
 
 const actions = {
-  async fetchAuthToken({ commit, rootGetters }, creds) {
-    try {
-      const response = await axios.get(
-        `http://localhost:8990/api/auth?user=${creds.user}&password=${creds.password}`,
-        rootGetters["getAuthHeader"]
-      );
-      commit("setToken", response.data);
-    } catch (error) {
-      console.log("Error caught: " + error);
-    }
+  fetchAuthToken({ commit, rootGetters }, creds) {
+    return new Promise((resolve, reject) => {
+      axios
+        .get(
+          `http://localhost:8990/api/auth?user=${creds.user}&password=${creds.password}`,
+          rootGetters["getAuthHeader"]
+        )
+        .then(res => {
+          commit("setToken", res.data);
+          resolve(true);
+        })
+        .catch(err => {
+          console.log("fetchAuthToken Error caught: " + err);
+          reject(false);
+        });
+    });
   }
 };
 
 const mutations = {
-  setToken: (state, token) => (state.token = token)
+  setToken: (state, token) => {
+    state.token = token;
+    state.claims = jwtDecode(token);
+  },
+
+  unsetToken: state => {
+    state.token = "";
+    state.claims = {};
+  }
 };
 
 export default {

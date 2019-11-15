@@ -18,6 +18,7 @@ const getters = {
 
 const actions = {
   async fetchTraces({ commit, rootGetters }, limit) {
+    if (!rootGetters["isAuthorized"]) return;
     try {
       const response = await axios.get(
         `http://localhost:8990/api/traces?limit=${limit}`,
@@ -30,6 +31,7 @@ const actions = {
   },
 
   async fetchGraphData({ commit, rootGetters }, payload) {
+    if (!rootGetters["isAuthorized"]) return;
     try {
       const response = await axios.get(
         `http://localhost:8990/api/graph?dest=${payload.dest}&skip=${payload.skip}`,
