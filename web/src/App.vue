@@ -3,6 +3,10 @@
     <v-app-bar app clipped-left color="primary" dark>
       <!-- <v-app-bar-nav-icon @click.stop="drawer = !drawer"></v-app-bar-nav-icon> -->
       <v-toolbar-title>disttrace Webinterface</v-toolbar-title>
+      <v-spacer></v-spacer>
+      <v-btn icon @click="login">
+        <v-icon>fas fa-sign-in-alt</v-icon>
+      </v-btn>
     </v-app-bar>
 
     <v-navigation-drawer app clipped permanent expand-on-hover>
@@ -44,6 +48,8 @@
 </template>
 
 <script>
+import { mapGetters, mapActions } from "vuex";
+
 export default {
   name: "app",
   data: function() {
@@ -51,7 +57,16 @@ export default {
       drawer: null
     };
   },
-  methods: {}
+  methods: {
+    ...mapActions(["fetchAuthToken"]),
+
+    login: function() {
+      this.fetchAuthToken({ user: "admin", password: "123" });
+    }
+  },
+  computed: {
+    ...mapGetters(["getAuthState"])
+  }
 };
 </script>
 

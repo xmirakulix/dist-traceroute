@@ -61,6 +61,38 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 	return false
 }
 
+func httpHandleAPIAuth(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		user := req.URL.Query().Get("user")
+		password := req.URL.Query().Get("password")
+
+		log.Debugf("httpHandleAPIAuth: Received API 'auth' request for user<%v>", user)
+
+		if user != "admin" || password != "123" {
+			time.Sleep(3 * time.Second)
+			http.Error(writer, "User/PW do not match", http.StatusUnauthorized)
+			return
+		}
+
+		claims := disttrace.AuthClaims{
+			Username: user,
+		}
+		token, err := disttrace.GetToken(claims)
+		if err != nil {
+			log.Warn("httpHandleAPIAuth: Can't generate auth token")
+			http.Error(writer, "Can't generate token", http.StatusBadRequest)
+			return
+		}
+
+		if _, err := writer.Write(token); err != nil {
+			log.Warn("httpHandleAPIAuth: Couldn't write response: ", err)
+		}
+
+		log.Debug("httpHandleAPIAuth: Replying with success.")
+		return
+	}
+}
+
 func httpHandleAPIStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpHandleAPIStatus: Received API 'status' request")
@@ -85,7 +117,6 @@ func httpHandleAPIStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		resJSON, _ := json.MarshalIndent(response, "", "	")
 
-		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := writer.Write(resJSON); err != nil {
 			log.Warn("httpHandleAPIStatus: Couldn't write response: ", err)
 		}
@@ -101,7 +132,7 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		start := req.URL.Query().Get("start")
 		end := req.URL.Query().Get("end")
 
-		log.Debugf("httpHandleAPIGraphData: Received API 'status' request, dest: <%v>, skip: <%v>, start<%v>, end<%v>", dest, skip, start, end)
+		log.Debugf("httpHandleAPIGraphData: Received API 'graphdata' request, dest: <%v>, skip: <%v>, start<%v>, end<%v>", dest, skip, start, end)
 
 		if len(dest) < 1 {
 			log.Info("httpHandleAPIGraphData: Parameter dest missing or empty, returning error.")
@@ -138,7 +169,6 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		response := fmt.Sprintf("{ \"Start\": \"%v\", \"End\": \"%v\", \"Data\": %v }", resStart, resEnd, resGraphData)
 
-		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := io.WriteString(writer, response); err != nil {
 			log.Warn("httpHandleAPIGraphData: Couldn't write response: ", err)
 		}
@@ -151,7 +181,7 @@ func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc
 	return func(writer http.ResponseWriter, req *http.Request) {
 		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 
-		log.Debugf("httpHandleAPITraceHistory: Received API 'status' request, limit: <%v>", limit)
+		log.Debugf("httpHandleAPITraceHistory: Received API 'tracehistory' request, limit: <%v>", limit)
 
 		lastResultsQuery := `
 		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.nHopId) AS nHopCount, 
@@ -203,7 +233,6 @@ func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc
 			return
 		}
 
-		writer.Header().Add("Access-Control-Allow-Origin", "*")
 		if _, err := writer.Write(response); err != nil {
 			log.Warn("httpHandleAPITraceHistory: Couldn't write response: ", err)
 		}
@@ -454,14 +483,41 @@ func httpHandleSlaveConfig(targetConfigFile string, ppCfg **disttrace.GenericCon
 	}
 }
 
-func checkAuthentication(rw http.ResponseWriter, r *http.Request, next http.HandlerFunc) {
+func checkAuth(writer http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
 
-	log.Info("CheckAuthentication: Start...")
+	authHeader := req.Header.Get("Authorization")
+	log.Debugf("checkAuth: Received request, checking Auth-Header<%v>", authHeader)
 
-	// call next handler
-	next(rw, r)
+	if authHeader == "" {
+		log.Debug("checkAuth: Auth header empty or missing, returning unauthorized...")
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
 
-	log.Info("CheckAuthentication: End...")
+	// check for a verifiable token
+	if err := disttrace.VerifyToken([]byte(disttrace.TokenFromAuthHeader(authHeader))); err != nil {
+		log.Debug("checkAuth: Couldn't verify supplied token, returning unauthorized...")
+		http.Error(writer, "Unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// call next handler in chain
+	next(writer, req)
+}
+
+func handleAccessControl(writer http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
+
+	writer.Header().Add("Access-Control-Allow-Origin", "*")
+	writer.Header().Add("Access-Control-Allow-Methods", "DELETE, POST, GET, OPTIONS")
+	writer.Header().Add("Access-Control-Allow-Headers", "Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With")
+
+	if req.Method == "OPTIONS" {
+		writer.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// call next handler in chain
+	next(writer, req)
 }
 
 func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigFile string) {
@@ -488,17 +544,19 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 	authRouter.HandleFunc("/api/graph", httpHandleAPIGraphData(ppCfg))
 
 	authHandler := negroni.New()
-	authHandler.Use(negroni.HandlerFunc(checkAuthentication))
+	authHandler.Use(negroni.HandlerFunc(checkAuth))
 	authHandler.UseHandler(authRouter)
 
 	// handle everything else
 	rootRouter := http.NewServeMux()
 	rootRouter.HandleFunc("/", httpDefaultHandler(ppCfg))
+	rootRouter.HandleFunc("/api/auth", httpHandleAPIAuth(ppCfg))
 	rootRouter.Handle("/slave/", slaveRouter)
 	rootRouter.Handle("/api/", authHandler)
 
 	// register middleware for all requests
 	rootHandler := negroni.New()
+	rootHandler.Use(negroni.HandlerFunc(handleAccessControl))
 	rootHandler.Use(negroni.Wrap(ghandlers.CombinedLoggingHandler(accessWriter, rootRouter)))
 
 	srv := &http.Server{

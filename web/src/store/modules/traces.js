@@ -1,10 +1,12 @@
 import axios from "axios";
 
-const state = {
-  traces: [],
-  graphData: [],
-  graphStart: 0,
-  graphEnd: 0
+const state = () => {
+  return {
+    traces: [],
+    graphData: [],
+    graphStart: 0,
+    graphEnd: 0
+  };
 };
 
 const getters = {
@@ -15,10 +17,11 @@ const getters = {
 };
 
 const actions = {
-  async fetchTraces({ commit }, limit) {
+  async fetchTraces({ commit, rootGetters }, limit) {
     try {
       const response = await axios.get(
-        `http://localhost:8990/api/traces?limit=${limit}`
+        `http://localhost:8990/api/traces?limit=${limit}`,
+        rootGetters["getAuthHeader"]
       );
       commit("setTraces", response.data);
     } catch (error) {
@@ -26,10 +29,11 @@ const actions = {
     }
   },
 
-  async fetchGraphData({ commit }, payload) {
+  async fetchGraphData({ commit, rootGetters }, payload) {
     try {
       const response = await axios.get(
-        `http://localhost:8990/api/graph?dest=${payload.dest}&skip=${payload.skip}`
+        `http://localhost:8990/api/graph?dest=${payload.dest}&skip=${payload.skip}`,
+        rootGetters["getAuthHeader"]
       );
       commit("setGraphData", response.data.Data);
       commit("setGraphStart", response.data.Start);

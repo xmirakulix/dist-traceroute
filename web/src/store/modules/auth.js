@@ -2,27 +2,26 @@ import axios from "axios";
 
 const state = () => {
   return {
-    status: {
-      Uptime: "n/a",
-      CurrentMasterConfig: {},
-      LastSlaveConfigTime: "n/a",
-      LastSlaveConfig: {}
-    }
+    token: "123"
   };
 };
 
 const getters = {
-  getStatus: state => state.status
+  getAuthHeader: state => {
+    return {
+      headers: { Authorization: "Bearer " + state.token }
+    };
+  }
 };
 
 const actions = {
-  async fetchStatus({ commit, rootGetters }) {
+  async fetchAuthToken({ commit, rootGetters }, creds) {
     try {
       const response = await axios.get(
-        "http://localhost:8990/api/status",
+        `http://localhost:8990/api/auth?user=${creds.user}&password=${creds.password}`,
         rootGetters["getAuthHeader"]
       );
-      commit("setStatus", response.data);
+      commit("setToken", response.data);
     } catch (error) {
       console.log("Error caught: " + error);
     }
@@ -30,7 +29,7 @@ const actions = {
 };
 
 const mutations = {
-  setStatus: (state, status) => (state.status = status)
+  setToken: (state, token) => (state.token = token)
 };
 
 export default {
