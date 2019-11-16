@@ -11,6 +11,26 @@ const routes = [
     component: Home
   },
   {
+    path: "/config/users",
+    name: "configUsers",
+    component: () =>
+      import(/* webpackChunkName: "configUsers" */ "@/views/ConfigUsers.vue")
+  },
+  {
+    path: "/config/slaves",
+    name: "configSlaves",
+    component: () =>
+      import(/* webpackChunkName: "configSlaves" */ "@/views/ConfigSlaves.vue")
+  },
+  {
+    path: "/config/targets",
+    name: "configTargets",
+    component: () =>
+      import(
+        /* webpackChunkName: "configTargets" */ "@/views/ConfigTargets.vue"
+      )
+  },
+  {
     path: "/history",
     name: "history",
     component: () =>

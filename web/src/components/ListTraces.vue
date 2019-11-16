@@ -6,7 +6,7 @@
         :headers="headers"
         :items="getTraces"
         :items-per-page="5"
-        :hide-default-footer="true"
+        :hide-default-footer="limit <= 3"
         :disable-sort="true"
         class="elevation-1"
       >
@@ -65,6 +65,13 @@ export default {
     };
   },
 
+  props: {
+    limit: {
+      type: Number,
+      default: 3
+    }
+  },
+
   methods: {
     ...mapActions(["fetchTraces"])
   },
@@ -72,7 +79,7 @@ export default {
     ...mapGetters(["getTraces"])
   },
   created() {
-    this.fetchTraces(3);
+    this.fetchTraces(this.limit);
   }
 };
 </script>

@@ -11,6 +11,7 @@
     </v-app-bar>
 
     <v-navigation-drawer
+      v-model="drawer"
       app
       clipped
       permanent
@@ -18,27 +19,25 @@
       v-if="isAuthorized"
     >
       <v-list>
-        <v-list-item :to="{ name: 'home' }" exact color="primary">
-          <v-list-item-action>
-            <v-icon>fas fa-home</v-icon>
-          </v-list-item-action>
-          <v-list-item-title>Home</v-list-item-title>
-        </v-list-item>
-        <v-list-item :to="{ name: 'history' }" color="primary">
-          <v-list-item-action>
-            <v-icon>fas fa-history</v-icon>
-          </v-list-item-action>
-          <v-list-item-title>Trace Results</v-list-item-title>
-        </v-list-item>
-        <v-list-item
-          :to="{ name: 'graph', params: { dest: -1 } }"
-          color="primary"
-        >
-          <v-list-item-action>
-            <v-icon>fas fa-project-diagram</v-icon>
-          </v-list-item-action>
-          <v-list-item-title>Trace Graph</v-list-item-title>
-        </v-list-item>
+        <template v-for="(item, i) in items">
+          <!-- Menu entries -->
+          <v-list-item v-if="item.icon" :to="item.to" :key="i" color="primary">
+            <v-list-item-action>
+              <v-icon>{{ item.icon }}</v-icon>
+            </v-list-item-action>
+            <v-list-item-title>{{ item.text }}</v-list-item-title>
+          </v-list-item>
+
+          <!-- Headings -->
+          <v-list-item v-else-if="item.heading" :key="i" dense class="mt-4">
+            <v-list-item-title>
+              {{ item.heading }}
+            </v-list-item-title>
+          </v-list-item>
+
+          <!-- Dividers -->
+          <v-divider v-else-if="item.divider" :key="i" dark class="mb-2" />
+        </template>
       </v-list>
     </v-navigation-drawer>
 
@@ -65,7 +64,25 @@ export default {
   name: "app",
   data: function() {
     return {
-      drawer: null
+      drawer: null,
+      items: [
+        { icon: "fas fa-home", text: "Home", to: "/" },
+        { icon: "fas fa-history", text: "Trace Results", to: "/history" },
+        {
+          icon: "fa-project-diagram",
+          text: "Trace Graph",
+          to: { name: "graph", params: { dest: -1 } }
+        },
+        { heading: "Configuration" },
+        { divider: true },
+        { icon: "fas fa-user-cog", text: "Users", to: "/config/users" },
+        { icon: "fas fa-server", text: "Slaves", to: "/config/slaves" },
+        {
+          icon: "fas fa-map-marker-alt",
+          text: "Targets",
+          to: "/config/targets"
+        }
+      ]
     };
   },
 

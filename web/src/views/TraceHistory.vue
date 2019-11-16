@@ -1,7 +1,7 @@
 <template>
   <div>
     <h1>History of traces</h1>
-    <ListTraces />
+    <ListTraces :limit="10" />
   </div>
 </template>
 
