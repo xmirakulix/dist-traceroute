@@ -5,16 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"flag"
-	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 	"time"
-)
 
-import (
+	"github.com/sirupsen/logrus"
+
 	valid "github.com/asaskevich/govalidator"
 )
 
@@ -99,9 +97,8 @@ func PrintSlaveUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
 
 	// create sample config file
 	def := new(SlaveConfig)
-	targets := make(map[uuid.UUID]TraceTarget)
-	targets[uuid.New()] = TraceTarget{}
-	def.Targets = targets
+	target := TraceTarget{}
+	def.Targets = append(def.Targets, target)
 	defJSON, _ := json.MarshalIndent(def, "", "  ")
 
 	log.Warn("Sample configuration file: \n", string(defJSON))

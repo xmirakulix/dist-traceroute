@@ -15,6 +15,7 @@ import (
 	"time"
 
 	valid "github.com/asaskevich/govalidator"
+	"github.com/google/uuid"
 
 	ghandlers "github.com/gorilla/handlers"
 	"github.com/sirupsen/logrus"
@@ -26,7 +27,9 @@ import (
 // TODO add option to post results to elastic
 // TODO https/TLS
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
-// TODO config of slaves and targets in db
+
+// TODO GUI: sign out when 401 received (server restart)
+// TODO GUI: refresh trace history together with status on home page
 
 // global logger
 var log = logrus.New()
@@ -39,7 +42,7 @@ var lastTransmittedSlaveConfigTime time.Time
 
 var db *disttrace.DB
 
-func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
+func checkCredentials(slaveCreds *disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
 
 	success = false
 	pCfg := *ppCfg
@@ -50,6 +53,8 @@ func checkCredentials(slaveCreds disttrace.SlaveCredentials, writer http.Respons
 
 			// success!
 			log.Debugf("checkCredentials: Successfully authenticated slave '%v' from peer: %v", slaveCreds.Name, req.RemoteAddr)
+
+			slaveCreds.ID = trustedSlave.ID
 			return true
 		}
 	}
@@ -147,12 +152,14 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 				h.strHopDNSName,
 				h.strHopIPAddress, COUNT(*) as cnt, AVG(h.dDurationSec)*1000 as avgDuration,
 				h.strHopIPAddress || h.nHopIndex || COALESCE(prev.strHopIPAddress, '') AS LinkId,
-				t.strDestination
+				tg.strDestination
 
-				FROM t_Hops h JOIN t_Traceroutes t ON t.nTracerouteId = h.nTracerouteId
-				LEFT JOIN t_Hops prev ON h.nPreviousHopId = prev.nHopId
+				FROM t_Hops h  
+				JOIN t_Traceroutes t ON t.strTracerouteId = h.strTracerouteId
+				JOIN t_Targets tg ON t.strTargetId = tg.strTargetId
+				LEFT JOIN t_Hops prev ON h.strPreviousHopId = prev.strHopId
 
-				WHERE t.strDestination = ? AND h.nHopIndex > ?
+				WHERE tg.strDestination = ? AND h.nHopIndex > ?
 
 				GROUP BY h.strHopIPAddress, h.nHopIndex, prevHopAddress
 				ORDER BY h.nHopIndex
@@ -163,7 +170,7 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		resRow := db.QueryRow(query, dest, skip)
 		var resStart, resEnd, resGraphData string
 		if err := resRow.Scan(&resStart, &resEnd, &resGraphData); err != nil {
-			log.Debug("httpHandleAPIGraphData: No data found, returning empty...")
+			log.Debugf("httpHandleAPIGraphData: No data found or Error <%v>, returning empty...", err.Error())
 			resGraphData = "{}"
 		}
 
@@ -184,11 +191,14 @@ func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc
 		log.Debugf("httpHandleAPITraceHistory: Received API 'tracehistory' request, limit: <%v>", limit)
 
 		lastResultsQuery := `
-		SELECT t.nTracerouteId, t.strOriginSlave, t.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.nHopId) AS nHopCount, 
+		SELECT t.strTracerouteId, s.strSlaveName, tg.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.strHopId) AS nHopCount, 
 			json_group_object(h.nHopIndex, json_object('IP', h.strHopIPAddress, 'DNS', h.strHopDNSName, 'Duration', h.dDurationSec)) AS strHopDetails
-		FROM t_Traceroutes t LEFT JOIN t_Hops h ON t.nTracerouteId = h.nTracerouteId
-		GROUP BY t.nTracerouteId
-		ORDER BY t.nTracerouteId DESC
+		FROM t_Traceroutes t 
+		JOIN t_Slaves s ON t.strSlaveId = s.strSlaveId 
+		JOIN t_Targets tg ON t.strTargetId = tg.strTargetId
+		LEFT JOIN t_Hops h ON t.strTracerouteId = h.strTracerouteId
+		GROUP BY t.strTracerouteId
+		ORDER BY t.dtStart DESC 
 		`
 
 		if limit != 0 {
@@ -203,9 +213,10 @@ func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc
 			http.Error(writer, "Couldn't get last results from DB", http.StatusInternalServerError)
 			return
 		}
+		defer resRows.Close()
 
 		type trace struct {
-			TraceID    int64
+			TraceID    uuid.UUID
 			HopCnt     int64
 			SlaveName  string
 			DestName   string
@@ -224,8 +235,6 @@ func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc
 			}
 			rows = append(rows, t)
 		}
-
-		resRows.Close()
 
 		var response []byte
 		if response, err = json.MarshalIndent(rows, "", "	"); err != nil {
@@ -284,7 +293,7 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		}
 
 		// check authorization
-		if !checkCredentials(result.Creds, writer, req, ppCfg) {
+		if !checkCredentials(&result.Creds, writer, req, ppCfg) {
 			return
 		}
 
@@ -319,7 +328,7 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		// prepare traceroute insert
 		traceStmt, errDb := tx.Prepare(`
-			INSERT INTO t_Traceroutes (nTracerouteId, strOriginSlave, strDestination, dtStart, strAnnotations) 
+			INSERT INTO t_Traceroutes (strTracerouteId, strSlaveId, strTargetId, dtStart, strAnnotations) 
 			VALUES (?, ?, ?, ?, ?)
 			`)
 		defer traceStmt.Close()
@@ -331,7 +340,7 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 
 		// prepare hop insert
 		hopStmt, errDb := tx.Prepare(`
-			INSERT INTO t_Hops (nHopId, nTracerouteId, nHopIndex, strHopIPAddress, strHopDNSName, dDurationSec, nPreviousHopId)	
+			INSERT INTO t_Hops (strHopId, strTracerouteId, nHopIndex, strHopIPAddress, strHopDNSName, dDurationSec, strPreviousHopId)	
 			VALUES (?, ?, ?, ?, ?, ?, ?) 
 			`)
 		defer hopStmt.Close()
@@ -344,36 +353,37 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		log.Debug("httpHandleSlaveResults: Finished preparing queries, inserting data...")
 
 		// Insert result info
-		resTrace, errDb := traceStmt.Exec(nil, result.Creds.Name, result.Target.Address, result.DateTime.Format(time.RFC3339), "")
-		if errDb != nil {
+		traceID := uuid.New()
+		if _, errDb := traceStmt.Exec(traceID, result.Creds.ID, result.Target.ID, result.DateTime.Format(time.RFC3339), ""); errDb != nil {
 			log.Warn("httpHandleSlaveResults: Error while inserting result, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
-		lastTraceID, errDb := resTrace.LastInsertId()
+
 		if errDb != nil {
 			log.Warn("httpHandleSlaveResults: Error while getting last inserted ID of traceroute, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
 		}
-		log.Debug("httpHandleSlaveResults: Inserted result with ID: ", lastTraceID)
+		log.Debug("httpHandleSlaveResults: Inserted result with ID: ", traceID)
 
 		// Insert hops info
-		var prevHopID int64
+		var prevHopID uuid.UUID
 		for _, hop := range result.Hops {
-			var resHop sql.Result
+
+			hopID := uuid.New()
 			// prev hop is null on first hop
 			if hop.TTL == 0 {
-				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), nil)
+				_, errDb = hopStmt.Exec(hopID, traceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), nil)
 			} else {
-				resHop, errDb = hopStmt.Exec(nil, lastTraceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), prevHopID)
+				_, errDb = hopStmt.Exec(hopID, traceID, hop.TTL, hop.AddressString(), hop.Host, hop.ElapsedTime.Seconds(), prevHopID)
 			}
 			if errDb != nil {
 				log.Warn("httpHandleSlaveResults: Error while inserting hop, Error: ", errDb)
 				http.Error(writer, "Database error", http.StatusInternalServerError)
 				return
 			}
-			prevHopID, errDb = resHop.LastInsertId()
+			prevHopID = hopID
 			if errDb != nil {
 				log.Warn("httpHandleSlaveResults: Error while getting last inserted ID of hop, Error: ", errDb)
 				http.Error(writer, "Database error", http.StatusInternalServerError)
@@ -412,7 +422,7 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpHandleSlaveConfig(targetConfigFile string, ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleSlaveConfig(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpHandleSlaveConfig: Received request for config, URL: ", req.URL)
 
@@ -435,29 +445,35 @@ func httpHandleSlaveConfig(targetConfigFile string, ppCfg **disttrace.GenericCon
 		}
 
 		// check authorization
-		if !checkCredentials(slaveCreds, writer, req, ppCfg) {
+		if !checkCredentials(&slaveCreds, writer, req, ppCfg) {
 			return
 		}
 
-		// read config from disk
-		var body []byte
-		if body, err = ioutil.ReadFile(targetConfigFile); err != nil {
-			http.Error(writer, "Error: Couldn't read config file!", http.StatusInternalServerError)
-			log.Warn("httpHandleSlaveConfig: Error: Couldn't read config file: ", err)
-			lastTransmittedSlaveConfig = "Error: Couldn't read config file: " + err.Error()
-			lastTransmittedSlaveConfigTime = time.Now()
-			return
-		}
-
+		// read config from db
 		slaveConf := disttrace.SlaveConfig{}
 
-		// check if file can be parsed
-		if err = json.Unmarshal(body, &slaveConf); err != nil {
-			http.Error(writer, "Error: Can't parse config", http.StatusInternalServerError)
-			log.Warn("httpHandleSlaveConfig: Loaded config can't be parsed, Error: ", err)
-			lastTransmittedSlaveConfig = "Error: Can't parse config: " + err.Error()
+		query := "SELECT strTargetId, strDescription, strDestination, nRetries, nMaxHops, nTimeoutMSec FROM t_Targets"
+		rows, err := db.Query(query)
+		if err != nil {
+			http.Error(writer, "Error: Can't read targets from db", http.StatusInternalServerError)
+			log.Warn("httpHandleSlaveConfig: Can't read targets from db, Error: ", err)
+			lastTransmittedSlaveConfig = "Error: Can't read targets from db: " + err.Error()
 			lastTransmittedSlaveConfigTime = time.Now()
 			return
+		}
+		defer rows.Close()
+
+		for rows.Next() {
+			var tgt = disttrace.TraceTarget{}
+
+			if err := rows.Scan(&tgt.ID, &tgt.Name, &tgt.Address, &tgt.Retries, &tgt.MaxHops, &tgt.TimeoutMs); err != nil {
+				http.Error(writer, "Error: Can't scan target rows", http.StatusInternalServerError)
+				log.Warn("httpHandleSlaveConfig: Can't scan target rows, Error: ", err)
+				lastTransmittedSlaveConfig = "Error: Can't scan target rows: " + err.Error()
+				lastTransmittedSlaveConfigTime = time.Now()
+				return
+			}
+			slaveConf.Targets = append(slaveConf.Targets, tgt)
 		}
 
 		// validate config
@@ -465,6 +481,15 @@ func httpHandleSlaveConfig(targetConfigFile string, ppCfg **disttrace.GenericCon
 			http.Error(writer, "Error: Loaded config is invalid", http.StatusInternalServerError)
 			log.Warn("httpHandleSlaveConfig: Loaded config is invalid, Error: ", e)
 			lastTransmittedSlaveConfig = "Error: Loaded config is invalid: " + err.Error()
+			lastTransmittedSlaveConfigTime = time.Now()
+			return
+		}
+
+		body, err := json.MarshalIndent(slaveConf, "", "	")
+		if err != nil {
+			http.Error(writer, "Error: Couldn't marshal slaves for response", http.StatusInternalServerError)
+			log.Warn("httpHandleSlaveConfig: Couldn't marshal slaves for response, Error: ", err)
+			lastTransmittedSlaveConfig = "Error: Couldn't marshal slaves for response: " + err.Error()
 			lastTransmittedSlaveConfigTime = time.Now()
 			return
 		}
@@ -535,7 +560,7 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 	// handle slaves
 	slaveRouter := http.NewServeMux()
 	slaveRouter.HandleFunc("/slave/results", httpHandleSlaveResults(ppCfg))
-	slaveRouter.HandleFunc("/slave/config", httpHandleSlaveConfig(targetConfigFile, ppCfg))
+	slaveRouter.HandleFunc("/slave/config", httpHandleSlaveConfig(ppCfg))
 
 	// handle api requests from webinterface
 	authRouter := http.NewServeMux()
@@ -665,7 +690,7 @@ func main() {
 	}
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.MasterConfigPoller(masterConfigNameAndPath, ppCfg)
+	go disttrace.MasterConfigPoller(db, ppCfg)
 
 	log.Info("Main: Launching http server process...")
 	go httpServer(ppCfg, accessLogNameAndPath, targetsConfigNameAndPath)

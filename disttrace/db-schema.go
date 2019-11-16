@@ -1,8 +1,15 @@
 package disttrace
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"errors"
+	"fmt"
+	"math"
+	"math/rand"
+	"strconv"
+
+	"github.com/google/uuid"
 )
 
 // getSchemaVersion returns the current schema version of the database
@@ -58,32 +65,67 @@ func (db *DB) createAndUpdateDbSchema() error {
 	schemaUpdate[1] = []string{
 		`CREATE TABLE IF NOT EXISTS t_SchemaInfo (
 			nVersion INTEGER PRIMARY KEY
-			)`,
+		)`,
 
 		"INSERT INTO t_SchemaInfo VALUES (1)",
 	}
 
+	salt := rand.Intn(math.MaxInt32)
+
 	schemaUpdate[2] = []string{
 		`CREATE TABLE IF NOT EXISTS t_Traceroutes (
-			nTracerouteId INTEGER PRIMARY KEY AUTOINCREMENT,
-			strOriginSlave TEXT NOT NULL,
-			strDestination TEXT NOT NULL,
+			strTracerouteId TEXT PRIMARY KEY,
+			strSlaveId TEXT NOT NULL,
+			strTargetId TEXT NOT NULL,
 			dtStart INTEGER NOT NULL,
 			strAnnotations TEXT
-			)`,
+		)`,
 
 		`CREATE TABLE IF NOT EXISTS t_Hops (
-			nHopId INTEGER PRIMARY KEY AUTOINCREMENT, 
-			nTracerouteId INTEGER NOT NULL, 
+			strHopId TEXT PRIMARY KEY, 
+			strTracerouteId INTEGER NOT NULL, 
 			nHopIndex INTEGER NOT NULL,
 			strHopIPAddress TEXT,
 			strHopDNSName TEXT, 
 			dDurationSec INTEGER,
-			nPreviousHopId INTEGER,
+			strPreviousHopId INTEGER,
 			strAnnotations TEXT
-			)`,
+		)`,
 
-		`UPDATE t_SchemaInfo SET nVersion = 2`,
+		`CREATE TABLE IF NOT EXISTS t_Targets (
+			strTargetId TEXT PRIMARY KEY,
+			strDescription TEXT, 
+			strDestination TEXT NOT NULL,
+			nRetries INTEGER NOT NULL,
+			nMaxHops INTEGER NOT NULL,
+			nTimeoutMSec INTEGER NOT NULL
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS t_Slaves (
+			strSlaveId TEXT PRIMARY KEY, 
+			strSlaveName TEXT NOT NULL,
+			strSlaveSecret TEXT NOT NULL 
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS t_MasterConfig (
+			strConfigId TEXT PRIMARY KEY, 
+			strReportURL TEXT NOT NULL
+		)`,
+
+		`CREATE TABLE IF NOT EXISTS t_Users (
+			strUserId TEXT PRIMARY KEY, 
+			strUserName TEXT NOT NULL,
+			strPassword TEXT NOT NULL,
+			nSalt INTEGER NOT NULL,
+			nPassNeedsChange INTEGER NOT NULL
+		)`,
+
+		// create admin:admin user
+		fmt.Sprintf(`INSERT INTO t_Users (strUserId, strUserName, strPassword, nSalt, nPassNeedsChange) 
+			VALUES ("%v", "admin", "%v", "%v", 1)`,
+			uuid.New(), sha256.Sum256([]byte("admin"+strconv.Itoa(salt))), salt),
+
+		`UPDATE t_SchemaInfo SET nVersion = 3`,
 	}
 
 	// get current DB schema version

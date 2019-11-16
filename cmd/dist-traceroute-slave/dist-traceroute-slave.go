@@ -39,7 +39,7 @@ var doExit = false
 var debugMode = false
 
 // runMeasurement runs the traceroute for the given target and hands results directly to txProcess
-func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult, txBufferSize *int32) {
+func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txBuffer chan disttrace.TraceResult, txBufferSize *int32) {
 
 	// init results struct
 	var result = disttrace.TraceResult{}
@@ -47,7 +47,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	result.DateTime = time.Now()
 	result.Target = target
 
-	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'", targetID, target.Name)
+	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'", target.ID, target.Name)
 
 	// shall we create fake results?
 	if debugMode {
@@ -84,18 +84,18 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 		result.Target.Address = target.Address
 		txBuffer <- result
 		atomic.AddInt32(txBufferSize, 1)
-		log.Debugf("runMeasurement[%v]: returning fake measurement for target '%v'", targetID, result.Target.Name)
+		log.Debugf("runMeasurement[%v]: returning fake measurement for target '%v'", target.ID, target.Name)
 		return
 	}
 
 	// need to supply chan with sufficient buffer, not used
-	c := make(chan tracert.TracerouteHop, (cfg.MaxHops + 1))
+	c := make(chan tracert.TracerouteHop, (target.MaxHops + 1))
 
 	// create Traceroute options from config
 	opts := tracert.TracerouteOptions{}
-	opts.SetMaxHops(cfg.MaxHops)
-	opts.SetRetries(cfg.Retries)
-	opts.SetTimeoutMs(cfg.TimeoutMs)
+	opts.SetMaxHops(target.MaxHops)
+	opts.SetRetries(target.Retries)
+	opts.SetTimeoutMs(target.TimeoutMs)
 
 	// don't run two measurements simultaneously!
 	measurementRunningLock.Lock()
@@ -104,17 +104,17 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	// do measurement
 	res, err := tracert.Traceroute(target.Address, &opts, c)
 	if err != nil {
-		log.Warnf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v", targetID, target.Name, err)
+		log.Warnf("runMeasurement[%v]: Error while doing traceroute to target '%v': %v", target.ID, target.Name, err)
 		return
 	}
 
 	if len(res.Hops) == 0 {
-		log.Warnf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false", targetID, target.Name)
+		log.Warnf("runMeasurement[%v]: Strange, no hops received for target '%v'. Success: false", target.ID, target.Name)
 		result.Success = false
 
 	} else {
 		log.Debugf("runMeasurement[%v]: Success, Target: %v (%v), Hops: %v, Time: %v",
-			targetID, target.Name, target.Address,
+			target.ID, target.Name, target.Address,
 			res.Hops[len(res.Hops)-1].TTL,
 			res.Hops[len(res.Hops)-1].ElapsedTime,
 		)
@@ -128,7 +128,7 @@ func runMeasurement(targetID uuid.UUID, target disttrace.TraceTarget, cfg disttr
 	case txBuffer <- result:
 		queuesize := atomic.AddInt32(txBufferSize, 1)
 		log.Infof("runMeasurement[%v]: Added item '%v' to tx queue, new queue size: %v. Target: %v, Success:%v, Hops: %v",
-			targetID, target.Name, queuesize,
+			target.ID, target.Name, queuesize,
 			target.Address, result.Success, result.HopCount,
 		)
 	default:
@@ -311,9 +311,9 @@ func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg
 			tempCfgTargets := tempCfg.Targets
 
 			// loop through configured targets
-			for i, target := range tempCfgTargets {
-				log.Debugf("tracePoller: Running measurement proc [%v] for element '%v'", i, target.Name)
-				runMeasurement(i, target, tempCfg, txBuffer, txBufferSize)
+			for _, target := range tempCfgTargets {
+				log.Debugf("tracePoller: Running measurement proc [%v] for element '%v'", target.ID, target.Name)
+				runMeasurement(target, tempCfg, txBuffer, txBufferSize)
 			}
 
 			// run again on next full minute

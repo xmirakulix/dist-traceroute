@@ -19,12 +19,9 @@ type GenericConfig struct {
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
-	MasterHost string                    `json:"-" valid:"-"`
-	MasterPort string                    `json:"-" valid:"-"`
-	Targets    map[uuid.UUID]TraceTarget `valid:"-"`
-	Retries    int                       `valid:"int,	required,	range(0|10)"`
-	MaxHops    int                       `valid:"int,	required,	range(1|100)"`
-	TimeoutMs  int                       `valid:"int,	required,	range(1|10000)"`
+	MasterHost string        `json:"-" valid:"-"`
+	MasterPort string        `json:"-" valid:"-"`
+	Targets    []TraceTarget `valid:"-"`
 }
 
 // MasterConfig holds the configuration for a dist-traceroute-master
@@ -34,14 +31,19 @@ type MasterConfig struct {
 
 // SlaveCredentials hold authentication information for slaves on master
 type SlaveCredentials struct {
-	Name     string `valid:"alphanum,	required"`
-	Password string `valid:"alphanum,	required"`
+	ID       uuid.UUID `valid:"-"`
+	Name     string    `valid:"alphanum,	required"`
+	Password string    `valid:"alphanum,	required"`
 }
 
 // TraceTarget contains information about a single dist-traceroute target
 type TraceTarget struct {
-	Name    string `valid:"alphanum,	required"`
-	Address string `valid:"host,		required"`
+	ID        uuid.UUID `valid:"-"`
+	Name      string    `valid:"alphanum,	required"`
+	Address   string    `valid:"host,		required"`
+	Retries   int       `valid:"int,	required,	range(0|10)"`
+	MaxHops   int       `valid:"int,	required,	range(1|100)"`
+	TimeoutMs int       `valid:"int,	required,	range(1|10000)"`
 }
 
 // TraceResult holds all relevant information of a single traceroute run
@@ -82,5 +84,6 @@ func ValidateTraceResult(res TraceResult) (bool, error) {
 		}
 	}
 
+	log.Debug("ValidateTraceResult: Results are valid")
 	return true, nil
 }

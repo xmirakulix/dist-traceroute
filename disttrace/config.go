@@ -6,11 +6,8 @@ import (
 	"errors"
 	"io/ioutil"
 	"net/http"
-	"os"
 	"time"
-)
 
-import (
 	valid "github.com/asaskevich/govalidator"
 )
 
@@ -21,7 +18,7 @@ type pollerConfig struct {
 }
 
 type masterPollerConfig struct {
-	FilePath string
+	Db *DB
 }
 
 type slavePollerConfig struct {
@@ -34,9 +31,9 @@ type slavePollerConfig struct {
 var ConfigPollerProcRunning = make(chan bool, 1)
 
 // MasterConfigPoller runs as process, checks master configuration file(s) periodically
-func MasterConfigPoller(filePath string, ppCfg **GenericConfig) {
+func MasterConfigPoller(db *DB, ppCfg **GenericConfig) {
 
-	mpc := masterPollerConfig{FilePath: filePath}
+	mpc := masterPollerConfig{Db: db}
 	pc := pollerConfig{Type: "master", masterPollerConfig: &mpc}
 
 	configPoller(pc, ppCfg)
@@ -83,7 +80,7 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 			if pollerCfg.Type == "slave" {
 				err = getSlaveConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.SlaveCreds, ppNewCfg)
 			} else {
-				err = getMasterConfigFromFile(pollerCfg.FilePath, ppNewCfg)
+				err = getMasterConfigFromDB(pollerCfg.Db, ppNewCfg)
 			}
 
 			if err != nil {
@@ -115,32 +112,32 @@ func configPoller(pollerCfg pollerConfig, ppCfg **GenericConfig) {
 	}
 }
 
-// getMasterConfigFromFile reads master configuration from file
-func getMasterConfigFromFile(filePath string, ppCfg **GenericConfig) error {
+// getMasterConfigFromDB reads master configuration from database
+func getMasterConfigFromDB(db *DB, ppCfg **GenericConfig) error {
 
 	// create new empty config
 	var newCfg = MasterConfig{}
 	var pCfg = *ppCfg
 	*pCfg.MasterConfig = newCfg
 
-	// open file
-	jsonFile, err := os.Open(filePath)
+	query := "SELECT strSlaveId, strSlaveName, strSlaveSecret FROM t_Slaves"
+	rows, err := db.Query(query)
 	if err != nil {
-		log.Fatalf("getMasterConfigFromFile: Couldn't open file '%v', Error: %v", filePath, err)
+		log.Warn("getMasterConfigFromDB: Couldn't get slaves from db, Error: ", err)
+		return errors.New("Couldn't get slaves")
 	}
-	defer jsonFile.Close()
+	defer rows.Close()
 
-	byteValue, err := ioutil.ReadAll(jsonFile)
-	if err != nil {
-		log.Fatalf("getMasterConfigFromFile: Couldn't read from file '%v', Error: %v", filePath, err)
+	for rows.Next() {
+		var slaveCfg = SlaveCredentials{}
+		if err := rows.Scan(&slaveCfg.ID, &slaveCfg.Name, &slaveCfg.Password); err != nil {
+			log.Warn("getMasterConfigFromDB: Couldn't read results from slaves, Error: ", err)
+			return errors.New("Couldn't get slaves")
+		}
+		newCfg.Slaves = append(newCfg.Slaves, slaveCfg)
 	}
 
-	err = json.Unmarshal(byteValue, &newCfg)
-	if err != nil {
-		log.Fatalf("getMasterConfigFromFile: Couldn't unmarshal content of file '%v', Error: %v", filePath, err)
-	}
-
-	log.Debugf("getMasterConfigFromFile: Got config from file '%v', number of configured slaves: %v", filePath, len(newCfg.Slaves))
+	log.Debugf("getMasterConfigFromDB: Got %v slaves from db.", len(newCfg.Slaves))
 	*pCfg.MasterConfig = newCfg
 	return nil
 }
