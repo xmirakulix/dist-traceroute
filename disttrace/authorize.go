@@ -26,10 +26,13 @@ func initAuth() {
 	}
 
 	secret = jwt.NewHS256(randBytes)
+	log.Debug("initAuth: Secret for signing of auth tokens generated")
 }
 
 // GetToken generates a new token with given claims
 func GetToken(claims AuthClaims) (token []byte, err error) {
+
+	log.Debug("GetToken: Generating new auth token...")
 
 	if secret == nil {
 		initAuth()
@@ -47,6 +50,8 @@ func GetToken(claims AuthClaims) (token []byte, err error) {
 	if err != nil {
 		log.Error("GetToken: Couldn't sign claims, Error: ", err)
 	}
+
+	log.Debug("GetToken: Returning new auth token")
 	return
 }
 
@@ -54,11 +59,17 @@ func GetToken(claims AuthClaims) (token []byte, err error) {
 func VerifyToken(token []byte) (err error) {
 
 	var payload AuthClaims
-	_, err = jwt.Verify(token, secret, &payload)
-	if err != nil {
-		log.Error("VerifyToken: Error while verifying authorization token, Error: ", err)
+
+	if secret == nil {
+		initAuth()
 	}
 
+	_, err = jwt.Verify(token, secret, &payload)
+	if err != nil {
+		log.Error("VerifyToken: Error while verifying authorization auth token, Error: ", err)
+	}
+
+	log.Debug("VerifyToken: Successfully verified auth token")
 	return
 }
 
