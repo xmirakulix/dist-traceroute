@@ -14,16 +14,16 @@ type SlaveConfig struct {
 	Targets    []TraceTarget `valid:"-"`
 }
 
-// SlaveCredentials hold authentication information for slaves on master
-type SlaveCredentials struct {
+// Slave holds all infos about a slave
+type Slave struct {
 	ID       uuid.UUID `valid:"-"`
 	Name     string    `valid:"alphanum,	required"`
 	Password string    `valid:"alphanum,	required"`
 }
 
-// CheckSlaveCreds checks supplied credentials for validity
-func CheckSlaveCreds(db *DB, user string, secret string) bool {
-	log.Debugf("CheckSlaveCreds: Checking creds for slave<%v> secret<%v> for validity...", user, secret)
+// CheckSlaveAuth checks supplied credentials for validity
+func CheckSlaveAuth(db *DB, user string, secret string) bool {
+	log.Debugf("CheckSlaveAuth: Checking auth for slave<%v> secret<%v> for validity...", user, secret)
 
 	query := `
 		SELECT strSlaveId 
@@ -37,21 +37,21 @@ func CheckSlaveCreds(db *DB, user string, secret string) bool {
 	row := db.QueryRow(query, user, secret)
 	if err := row.Scan(&slaveID); err != nil {
 		if err == sql.ErrNoRows {
-			log.Debug("CheckSlaveCreds: No data found, returning false")
+			log.Debug("CheckSlaveAuth: No data found, returning false")
 		} else {
-			log.Warn("CheckSlaveCreds: Error while getting slave data, Error: ", err.Error())
+			log.Warn("CheckSlaveAuth: Error while getting slave data, Error: ", err.Error())
 		}
 		return false
 	}
 
-	log.Debug("CheckSlaveCreds: Slave creds are valid...")
+	log.Debug("CheckSlaveAuth: Slave auth are valid...")
 	return true
 }
 
 // GetSlaves reads all slaves from the db
-func GetSlaves(db *DB, slaveName string) ([]SlaveCredentials, error) {
+func GetSlaves(db *DB, slaveName string) ([]Slave, error) {
 
-	slaves := []SlaveCredentials{}
+	slaves := []Slave{}
 
 	query := "SELECT strSlaveId, strSlaveName, strSlaveSecret FROM t_Slaves"
 	rows, err := db.Query(query)
@@ -62,12 +62,12 @@ func GetSlaves(db *DB, slaveName string) ([]SlaveCredentials, error) {
 	defer rows.Close()
 
 	for rows.Next() {
-		var slaveCfg = SlaveCredentials{}
-		if err := rows.Scan(&slaveCfg.ID, &slaveCfg.Name, &slaveCfg.Password); err != nil {
+		var slave = Slave{}
+		if err := rows.Scan(&slave.ID, &slave.Name, &slave.Password); err != nil {
 			log.Warn("getMasterConfigFromDB: Couldn't read results from slaves, Error: ", err)
-			return []SlaveCredentials{}, errors.New("Couldn't get slaves")
+			return []Slave{}, errors.New("Couldn't get slaves")
 		}
-		slaves = append(slaves, slaveCfg)
+		slaves = append(slaves, slave)
 	}
 
 	return slaves, nil

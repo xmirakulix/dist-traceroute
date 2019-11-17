@@ -23,7 +23,7 @@ type TraceTarget struct {
 
 // TraceResult holds all relevant information of a single traceroute run
 type TraceResult struct {
-	Creds    SlaveCredentials        `valid:"		required"`
+	Slave    Slave                   `valid:"		required"`
 	ID       uuid.UUID               `valid:"-"`
 	DateTime time.Time               `valid:"-"`
 	Target   TraceTarget             `valid:"		required"`

@@ -49,6 +49,7 @@ func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txB
 
 	log.Debugf("runMeasurement[%s]: Beginning measurement for target '%v'", target.ID, target.Name)
 
+	//TODO update fake results to new data format
 	// shall we create fake results?
 	if debugMode {
 		jsonStr := "{" +
@@ -138,7 +139,7 @@ func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txB
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.SlaveConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slave disttrace.Slave, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
 	txProcRunning <- true
@@ -193,7 +194,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 			log.Debug("txResultsToMaster: Sending: ", currentResult.Target.Name)
 
 			// prepare data to be sent
-			currentResult.Creds = slaveCreds
+			currentResult.Slave = slave
 			resultJSON, err := json.Marshal(currentResult)
 			if err != nil {
 				log.Warn("txResultsToMaster: Error: Couldn't create result json: ", err)
@@ -334,7 +335,7 @@ func main() {
 
 	// parse cmdline arguments
 	var masterHost, masterPort, logLevel, logPathAndName string
-	var creds disttrace.SlaveCredentials
+	var slave disttrace.Slave
 
 	// check cmdline args
 	{
@@ -354,14 +355,14 @@ func main() {
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		creds = disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
-		okCreds, _ := valid.ValidateStruct(creds)
+		slave = disttrace.Slave{Name: slaveName, Password: slavePwd}
+		okSlave, _ := valid.ValidateStruct(slave)
 		var errLog error
 		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
 
 		// valid cmdline arguments or exit
 		switch {
-		case !okCreds || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
+		case !okSlave || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
 			log.Warn("Error: No or invalid arguments for master, master-port or credentials, can't run, Bye.")
 			disttrace.PrintSlaveUsageAndExit(fSet, true)
 		case errLog != nil:
@@ -380,7 +381,7 @@ func main() {
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
-	disttrace.DebugPrintAllArguments(masterHost, masterPort, creds.Name, creds.Password, logPathAndName, logLevel)
+	disttrace.DebugPrintAllArguments(masterHost, masterPort, slave.Name, slave.Password, logPathAndName, logLevel)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
@@ -390,10 +391,10 @@ func main() {
 	ppCfg := &pCfg
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.ConfigPoller(masterHost, masterPort, creds, ppCfg)
+	go disttrace.ConfigPoller(masterHost, masterPort, slave, ppCfg)
 
 	log.Info("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, txSendBufferCnt, creds, ppCfg)
+	go txResultsToMaster(txSendBuffer, txSendBufferCnt, slave, ppCfg)
 
 	log.Info("Main: Launching trace poller process...")
 	go tracePoller(txSendBuffer, txSendBufferCnt, ppCfg)

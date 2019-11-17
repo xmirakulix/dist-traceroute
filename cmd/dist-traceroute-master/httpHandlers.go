@@ -15,14 +15,18 @@ import (
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 )
 
-func checkSlaveCredentials(creds *disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request) bool {
+// status vars for webinterface
+var lastTransmittedSlaveConfig = "none yet"
+var lastTransmittedSlaveConfigTime time.Time
 
-	if disttrace.CheckSlaveCreds(db, creds.Name, creds.Password) {
+func checkSlaveCredentials(slave *disttrace.Slave, writer http.ResponseWriter, req *http.Request) bool {
+
+	if disttrace.CheckSlaveAuth(db, slave.Name, slave.Password) {
 		return true
 	}
 
 	// no match found, unauthorized!
-	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", creds.Name, req.RemoteAddr)
+	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", slave.Name, req.RemoteAddr)
 	time.Sleep(2 * time.Second)
 	http.Error(writer, "Unauthorized", http.StatusUnauthorized)
 	return false
@@ -256,12 +260,12 @@ func httpHandleSlaveResults() http.HandlerFunc {
 		}
 
 		// check authorization
-		if !checkSlaveCredentials(&result.Creds, writer, req) {
+		if !checkSlaveCredentials(&result.Slave, writer, req) {
 			return
 		}
 
 		log.Infof("httpHandleSlaveResults: Received results from slave '%v' for target '%v'. Success: %v, Hops: %v.",
-			result.Creds.Name, result.Target.Name,
+			result.Slave.Name, result.Target.Name,
 			result.Success, result.HopCount,
 		)
 
@@ -317,7 +321,7 @@ func httpHandleSlaveResults() http.HandlerFunc {
 
 		// Insert result info
 		traceID := uuid.New()
-		if _, errDb := traceStmt.Exec(traceID, result.Creds.ID, result.Target.ID, result.DateTime.Format(time.RFC3339), ""); errDb != nil {
+		if _, errDb := traceStmt.Exec(traceID, result.Slave.ID, result.Target.ID, result.DateTime.Format(time.RFC3339), ""); errDb != nil {
 			log.Warn("httpHandleSlaveResults: Error while inserting result, Error: ", errDb)
 			http.Error(writer, "Database error", http.StatusInternalServerError)
 			return
@@ -400,15 +404,15 @@ func httpHandleSlaveConfig() http.HandlerFunc {
 		}
 
 		// parse JSON from request body
-		var slaveCreds disttrace.SlaveCredentials
-		if err = json.Unmarshal(reqBody, &slaveCreds); err != nil {
-			log.Warn("httpHandleSlaveConfig: Can't unmarshal request body into slave creds, Error: ", err)
+		var slave disttrace.Slave
+		if err = json.Unmarshal(reqBody, &slave); err != nil {
+			log.Warn("httpHandleSlaveConfig: Can't unmarshal request body into slave, Error: ", err)
 			http.Error(writer, "Can't unmarshal request body", http.StatusBadRequest)
 			return
 		}
 
 		// check authorization
-		if !checkSlaveCredentials(&slaveCreds, writer, req) {
+		if !checkSlaveCredentials(&slave, writer, req) {
 			return
 		}
 
@@ -466,7 +470,7 @@ func httpHandleSlaveConfig() http.HandlerFunc {
 			return
 		}
 
-		log.Infof("httpHandleSlaveConfig: Transmitting currently configured targets to slave '%v' for %v targets", slaveCreds.Name, len(slaveConf.Targets))
+		log.Infof("httpHandleSlaveConfig: Transmitting currently configured targets to slave '%v' for %v targets", slave.Name, len(slaveConf.Targets))
 		return
 	}
 }
@@ -506,4 +510,27 @@ func handleAccessControl(writer http.ResponseWriter, req *http.Request, next htt
 
 	// call next handler in chain
 	next(writer, req)
+}
+
+func httpHandleAPIUsers() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debug("httpHandleAPIUsers: Received API 'users' request")
+	}
+}
+
+func httpHandleAPISlaves() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debug("httpHandleAPISlaves: Received API 'slaves' request")
+
+		type Slave struct {
+		}
+
+	}
+}
+
+func httpHandleAPITargets() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debug("httpHandleAPITargets: Received API 'targets' request")
+
+	}
 }

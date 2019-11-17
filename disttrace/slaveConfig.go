@@ -14,21 +14,21 @@ import (
 type pollerConfig struct {
 	MasterHost string
 	MasterPort string
-	Creds      SlaveCredentials
+	Slave      Slave
 }
 
 // ConfigPollerProcRunning mutex for graceful shutdown
 var ConfigPollerProcRunning = make(chan bool, 1)
 
 // ConfigPoller runs as process, periodically polls slave configuration on master
-func ConfigPoller(masterHost string, masterPort string, creds SlaveCredentials, ppCfg **SlaveConfig) {
+func ConfigPoller(masterHost string, masterPort string, slave Slave, ppCfg **SlaveConfig) {
 
 	// lock mutex
 	ConfigPollerProcRunning <- true
 
 	// init vars
 	var nextTime time.Time
-	pollerCfg := pollerConfig{MasterHost: masterHost, MasterPort: masterPort, Creds: creds}
+	pollerCfg := pollerConfig{MasterHost: masterHost, MasterPort: masterPort, Slave: slave}
 
 	// infinite loop
 	log.Info("ConfigPoller: Start...")
@@ -48,7 +48,7 @@ func ConfigPoller(masterHost string, masterPort string, creds SlaveCredentials, 
 			ppNewCfg := &pNewCfg
 			var err error
 
-			err = getConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.Creds, ppNewCfg)
+			err = getConfigFromMaster(pollerCfg.MasterHost, pollerCfg.MasterPort, pollerCfg.Slave, ppNewCfg)
 
 			if err != nil {
 				log.Warn("ConfigPoller: Couldn't get configuration")
@@ -80,9 +80,9 @@ func ConfigPoller(masterHost string, masterPort string, creds SlaveCredentials, 
 }
 
 // getConfigFromMaster fetches the slave's configuration from the master server
-func getConfigFromMaster(masterHost string, masterPort string, creds SlaveCredentials, ppCfg **SlaveConfig) error {
+func getConfigFromMaster(masterHost string, masterPort string, slave Slave, ppCfg **SlaveConfig) error {
 
-	var slaveCredsJSON, _ = json.Marshal(creds)
+	var slaveJSON, _ = json.Marshal(slave)
 	var masterURL = "http://" + masterHost + ":" + masterPort + "/slave/config"
 
 	if !valid.IsURL(masterURL) {
@@ -100,7 +100,7 @@ func getConfigFromMaster(masterHost string, masterPort string, creds SlaveCreden
 	}
 
 	// download configuration file from master
-	httpResp, err := httpClient.Post(masterURL, "application/json", bytes.NewBuffer(slaveCredsJSON))
+	httpResp, err := httpClient.Post(masterURL, "application/json", bytes.NewBuffer(slaveJSON))
 	if err != nil {
 		log.Warn("getConfigFromMaster: Error sending HTTP Request: ", err)
 		return errors.New("Error sending HTTP Request")
