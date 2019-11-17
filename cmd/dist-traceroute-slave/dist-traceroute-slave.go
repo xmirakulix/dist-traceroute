@@ -348,7 +348,7 @@ func main() {
 		fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
 		fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
 		fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
-		fSet.StringVar(&logPathAndName, "log", "./dt-slave.log", "Logfile location `/path/to/file`")
+		fSet.StringVar(&logPathAndName, "log", "./slave.log", "Logfile location `/path/to/file`")
 		fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 		fSet.BoolVar(&debugMode, "zDebugResults", false, "Generate fake results, e.g. when run without root permissions")
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
