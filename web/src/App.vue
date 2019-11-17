@@ -51,7 +51,21 @@
     </v-content>
 
     <v-footer color="primary" app>
-      <span class="white--text">&copy; 2019</span>
+      <v-row no-gutters justify="space-between">
+        <v-col v-show="isAuthorized" class="white--text">
+          Uptime: {{ uptime }}
+        </v-col>
+        <v-col class="white--text" align="right">
+          &copy; 2019
+          <a
+            class="white--text"
+            style="text-decoration: none;"
+            href="https://github.com/xmirakulix/dist-traceroute/"
+          >
+            dist-traceroute
+          </a>
+        </v-col>
+      </v-row>
     </v-footer>
   </v-app>
 </template>
@@ -89,7 +103,7 @@ export default {
   components: { Login },
 
   methods: {
-    ...mapActions(["fetchAuthToken", "removeAuth"]),
+    ...mapActions(["fetchAuthToken", "removeAuth", "fetchStatus"]),
     ...mapMutations(["unsetToken"]),
 
     login: function() {
@@ -101,7 +115,18 @@ export default {
   },
 
   computed: {
-    ...mapGetters(["getAuthClaims", "isAuthorized"])
+    ...mapGetters(["getAuthClaims", "isAuthorized", "getStatus"]),
+
+    uptime: function() {
+      return this.isAuthorized ? this.getStatus.Uptime : "";
+    }
+  },
+
+  created: function() {
+    // regularly check status -> auto logged out on auth failure
+    setInterval(() => {
+      this.fetchStatus();
+    }, 10 * 1000);
   }
 };
 </script>

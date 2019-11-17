@@ -1,5 +1,6 @@
 import axios from "axios";
 import jwtDecode from "jwt-decode";
+import router from "@/router/router";
 
 const state = () => {
   return {
@@ -44,6 +45,9 @@ const mutations = {
   setToken: (state, token) => {
     state.token = token;
     state.claims = jwtDecode(token);
+    if (router.currentRoute != "/") {
+      router.push("/");
+    }
   },
 
   unsetToken: state => {
