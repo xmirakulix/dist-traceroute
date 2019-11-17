@@ -10,7 +10,7 @@ import (
 
 // AuthClaims holds the signed auth info
 type AuthClaims struct {
-	payload  jwt.Payload
+	Payload  jwt.Payload
 	Username string
 }
 
@@ -39,7 +39,7 @@ func GetToken(claims AuthClaims) (token []byte, err error) {
 	}
 
 	now := time.Now()
-	claims.payload = jwt.Payload{
+	claims.Payload = jwt.Payload{
 		Issuer:         "disttrace",
 		Subject:        claims.Username,
 		ExpirationTime: jwt.NumericDate(now.Add(time.Hour)),
@@ -64,7 +64,13 @@ func VerifyToken(token []byte) (err error) {
 		initAuth()
 	}
 
-	_, err = jwt.Verify(token, secret, &payload)
+	// Validate claims "iat" and "exp"
+	now := time.Now()
+	iatValidator := jwt.IssuedAtValidator(now)
+	expValidator := jwt.ExpirationTimeValidator(now)
+	validateOptions := jwt.ValidatePayload(&payload.Payload, iatValidator, expValidator)
+
+	_, err = jwt.Verify(token, secret, &payload, validateOptions)
 	if err != nil {
 		log.Error("VerifyToken: Error while verifying authorization auth token, Error: ", err)
 	}
