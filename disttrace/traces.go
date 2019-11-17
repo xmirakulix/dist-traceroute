@@ -11,31 +11,6 @@ import (
 	valid "github.com/asaskevich/govalidator"
 )
 
-// GenericConfig holds a master or slave configuration
-type GenericConfig struct {
-	*MasterConfig
-	*SlaveConfig
-}
-
-// SlaveConfig holds the configuration for a dist-traceroute-slave
-type SlaveConfig struct {
-	MasterHost string        `json:"-" valid:"-"`
-	MasterPort string        `json:"-" valid:"-"`
-	Targets    []TraceTarget `valid:"-"`
-}
-
-// MasterConfig holds the configuration for a dist-traceroute-master
-type MasterConfig struct {
-	Slaves []SlaveCredentials
-}
-
-// SlaveCredentials hold authentication information for slaves on master
-type SlaveCredentials struct {
-	ID       uuid.UUID `valid:"-"`
-	Name     string    `valid:"alphanum,	required"`
-	Password string    `valid:"alphanum,	required"`
-}
-
 // TraceTarget contains information about a single dist-traceroute target
 type TraceTarget struct {
 	ID        uuid.UUID `valid:"-"`

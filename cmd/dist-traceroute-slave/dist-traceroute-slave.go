@@ -138,12 +138,12 @@ func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txB
 }
 
 // txResultsToMaster runs as process. Takes results and transmits them to master server.
-func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.GenericConfig) {
+func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCreds disttrace.SlaveCredentials, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
 	txProcRunning <- true
 
-	disttrace.WaitForValidConfig("txResultsToMaster", "slave", ppCfg)
+	disttrace.WaitForValidConfig("txResultsToMaster", ppCfg)
 
 	// init
 	var workReceived = false
@@ -281,13 +281,13 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slaveCred
 	}
 }
 
-// tracePoller runs every minute and creates measurement processes for every target
-func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg **disttrace.GenericConfig) {
+// tracePoller runs every minute and creates measurement processes
+func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg **disttrace.SlaveConfig) {
 
 	// lock mutex
 	tracePollerProcRunning <- true
 
-	disttrace.WaitForValidConfig("tracePoller", "slave", ppCfg)
+	disttrace.WaitForValidConfig("tracePoller", ppCfg)
 
 	// init vars
 	var nextTime time.Time
@@ -296,24 +296,25 @@ func tracePoller(txBuffer chan disttrace.TraceResult, txBufferSize *int32, ppCfg
 	log.Info("tracePoller: Start...")
 	for {
 		// check if we need to exit
-		if disttrace.CheckForQuit() {
-			log.Warn("tracePoller: Received exit signal, bye.")
-			<-tracePollerProcRunning
-			return
-		}
 
 		// is it time to run?
 		if nextTime.Before(time.Now()) {
 
 			// get a copy of current config
 			pTempCfg := *ppCfg
-			tempCfg := *pTempCfg.SlaveConfig
+			tempCfg := *pTempCfg
 			tempCfgTargets := tempCfg.Targets
 
 			// loop through configured targets
 			for _, target := range tempCfgTargets {
 				log.Debugf("tracePoller: Running measurement proc [%v] for element '%v'", target.ID, target.Name)
 				runMeasurement(target, tempCfg, txBuffer, txBufferSize)
+
+				if disttrace.CheckForQuit() {
+					log.Warn("tracePoller: Received exit signal, bye.")
+					<-tracePollerProcRunning
+					return
+				}
 			}
 
 			// run again on next full minute
@@ -333,7 +334,7 @@ func main() {
 
 	// parse cmdline arguments
 	var masterHost, masterPort, logLevel, logPathAndName string
-	var slaveCreds disttrace.SlaveCredentials
+	var creds disttrace.SlaveCredentials
 
 	// check cmdline args
 	{
@@ -353,8 +354,8 @@ func main() {
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		slaveCreds = disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
-		okCreds, _ := valid.ValidateStruct(slaveCreds)
+		creds = disttrace.SlaveCredentials{Name: slaveName, Password: slavePwd}
+		okCreds, _ := valid.ValidateStruct(creds)
 		var errLog error
 		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
 
@@ -379,20 +380,20 @@ func main() {
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
-	disttrace.DebugPrintAllArguments(masterHost, masterPort, slaveCreds.Name, slaveCreds.Password, logPathAndName, logLevel)
+	disttrace.DebugPrintAllArguments(masterHost, masterPort, creds.Name, creds.Password, logPathAndName, logLevel)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
 
 	// read configuration from master server
-	pCfg := &disttrace.GenericConfig{SlaveConfig: &disttrace.SlaveConfig{}}
+	pCfg := &disttrace.SlaveConfig{}
 	ppCfg := &pCfg
 
 	log.Info("Main: Launching config poller process...")
-	go disttrace.SlaveConfigPoller(masterHost, masterPort, slaveCreds, ppCfg)
+	go disttrace.ConfigPoller(masterHost, masterPort, creds, ppCfg)
 
 	log.Info("Main: Launching transmit process...")
-	go txResultsToMaster(txSendBuffer, txSendBufferCnt, slaveCreds, ppCfg)
+	go txResultsToMaster(txSendBuffer, txSendBufferCnt, creds, ppCfg)
 
 	log.Info("Main: Launching trace poller process...")
 	go tracePoller(txSendBuffer, txSendBufferCnt, ppCfg)

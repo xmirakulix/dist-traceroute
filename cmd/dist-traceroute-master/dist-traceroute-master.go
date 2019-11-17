@@ -42,31 +42,20 @@ var lastTransmittedSlaveConfigTime time.Time
 
 var db *disttrace.DB
 
-func checkCredentials(slaveCreds *disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request, ppCfg **disttrace.GenericConfig) (success bool) {
+func checkCredentials(creds *disttrace.SlaveCredentials, writer http.ResponseWriter, req *http.Request) bool {
 
-	success = false
-	pCfg := *ppCfg
-
-	// check for match in master config
-	for _, trustedSlave := range pCfg.Slaves {
-		if trustedSlave.Name == slaveCreds.Name && trustedSlave.Password == slaveCreds.Password {
-
-			// success!
-			log.Debugf("checkCredentials: Successfully authenticated slave '%v' from peer: %v", slaveCreds.Name, req.RemoteAddr)
-
-			slaveCreds.ID = trustedSlave.ID
-			return true
-		}
+	if disttrace.CheckSlaveCreds(db, creds.Name, creds.Password) {
+		return true
 	}
 
 	// no match found, unauthorized!
-	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", slaveCreds.Name, req.RemoteAddr)
+	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", creds.Name, req.RemoteAddr)
 	time.Sleep(2 * time.Second)
 	http.Error(writer, "Unauthorized", http.StatusUnauthorized)
 	return false
 }
 
-func httpHandleAPIAuth(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPIAuth() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		user := req.URL.Query().Get("user")
 		password := req.URL.Query().Get("password")
@@ -98,7 +87,7 @@ func httpHandleAPIAuth(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpHandleAPIStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPIStatus() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpHandleAPIStatus: Received API 'status' request")
 
@@ -107,15 +96,12 @@ func httpHandleAPIStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 			timeSinceSlaveCfg = time.Since(lastTransmittedSlaveConfigTime).Truncate(time.Second).String()
 		}
 
-		pCfg := *ppCfg
 		response := struct {
 			Uptime              string
-			CurrentMasterConfig disttrace.MasterConfig
 			LastSlaveConfigTime string
 			LastSlaveConfig     string
 		}{
 			disttrace.GetUptime().Truncate(time.Second).String(),
-			*pCfg.MasterConfig,
 			timeSinceSlaveCfg,
 			lastTransmittedSlaveConfig,
 		}
@@ -130,7 +116,7 @@ func httpHandleAPIStatus(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPIGraphData() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		dest := req.URL.Query().Get("dest")
 		skip, _ := strconv.Atoi(req.URL.Query().Get("skip"))
@@ -170,7 +156,11 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		resRow := db.QueryRow(query, dest, skip)
 		var resStart, resEnd, resGraphData string
 		if err := resRow.Scan(&resStart, &resEnd, &resGraphData); err != nil {
-			log.Debugf("httpHandleAPIGraphData: No data found or Error <%v>, returning empty...", err.Error())
+			if err == sql.ErrNoRows {
+				log.Debug("httpHandleAPIGraphData: No data found, returning empty")
+			} else {
+				log.Warn("httpHandleAPIGraphData: Error while getting graph data, Error: ", err.Error())
+			}
 			resGraphData = "{}"
 		}
 
@@ -184,7 +174,7 @@ func httpHandleAPIGraphData(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleAPITraceHistory() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		limit, _ := strconv.Atoi(req.URL.Query().Get("limit"))
 
@@ -250,7 +240,7 @@ func httpHandleAPITraceHistory(ppCfg **disttrace.GenericConfig) http.HandlerFunc
 	}
 }
 
-func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpDefaultHandler() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Info("httpDefaultHandler: Received request for base/unknown URL, returning 'Not Found': ", req.URL)
 
@@ -260,7 +250,7 @@ func httpDefaultHandler(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleSlaveResults() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpHandleSlaveResults: Received request results, URL: ", req.URL)
 
@@ -293,7 +283,7 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		}
 
 		// check authorization
-		if !checkCredentials(&result.Creds, writer, req, ppCfg) {
+		if !checkCredentials(&result.Creds, writer, req) {
 			return
 		}
 
@@ -422,7 +412,7 @@ func httpHandleSlaveResults(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 	}
 }
 
-func httpHandleSlaveConfig(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
+func httpHandleSlaveConfig() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
 		log.Debug("httpHandleSlaveConfig: Received request for config, URL: ", req.URL)
 
@@ -445,7 +435,7 @@ func httpHandleSlaveConfig(ppCfg **disttrace.GenericConfig) http.HandlerFunc {
 		}
 
 		// check authorization
-		if !checkCredentials(&slaveCreds, writer, req, ppCfg) {
+		if !checkCredentials(&slaveCreds, writer, req) {
 			return
 		}
 
@@ -545,12 +535,10 @@ func handleAccessControl(writer http.ResponseWriter, req *http.Request, next htt
 	next(writer, req)
 }
 
-func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigFile string) {
+func httpServer(accessLog string) {
 	var err error
 
 	log.Info("httpServer: Start...")
-
-	disttrace.WaitForValidConfig("httpServer", "master", ppCfg)
 
 	var accessWriter io.Writer
 	if accessWriter, err = os.OpenFile(accessLog, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644); err != nil {
@@ -559,14 +547,14 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 
 	// handle slaves
 	slaveRouter := http.NewServeMux()
-	slaveRouter.HandleFunc("/slave/results", httpHandleSlaveResults(ppCfg))
-	slaveRouter.HandleFunc("/slave/config", httpHandleSlaveConfig(ppCfg))
+	slaveRouter.HandleFunc("/slave/results", httpHandleSlaveResults())
+	slaveRouter.HandleFunc("/slave/config", httpHandleSlaveConfig())
 
 	// handle api requests from webinterface
 	authRouter := http.NewServeMux()
-	authRouter.HandleFunc("/api/status", httpHandleAPIStatus(ppCfg))
-	authRouter.HandleFunc("/api/traces", httpHandleAPITraceHistory(ppCfg))
-	authRouter.HandleFunc("/api/graph", httpHandleAPIGraphData(ppCfg))
+	authRouter.HandleFunc("/api/status", httpHandleAPIStatus())
+	authRouter.HandleFunc("/api/traces", httpHandleAPITraceHistory())
+	authRouter.HandleFunc("/api/graph", httpHandleAPIGraphData())
 
 	authHandler := negroni.New()
 	authHandler.Use(negroni.HandlerFunc(checkAuth))
@@ -574,8 +562,8 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 
 	// handle everything else
 	rootRouter := http.NewServeMux()
-	rootRouter.HandleFunc("/", httpDefaultHandler(ppCfg))
-	rootRouter.HandleFunc("/api/auth", httpHandleAPIAuth(ppCfg))
+	rootRouter.HandleFunc("/", httpDefaultHandler())
+	rootRouter.HandleFunc("/api/auth", httpHandleAPIAuth())
 	rootRouter.Handle("/slave/", slaveRouter)
 	rootRouter.Handle("/api/", authHandler)
 
@@ -618,7 +606,6 @@ func httpServer(ppCfg **disttrace.GenericConfig, accessLog string, targetConfigF
 func main() {
 
 	// parse cmdline arguments
-	var masterConfigNameAndPath, targetsConfigNameAndPath string
 	var mainLogNameAndPath, accessLogNameAndPath string
 	var dbNameAndPath string
 	var logLevel string
@@ -630,8 +617,6 @@ func main() {
 		fSet := flag.FlagSet{}
 		outBuf := bytes.NewBuffer([]byte{})
 		fSet.SetOutput(outBuf)
-		fSet.StringVar(&masterConfigNameAndPath, "slaves", "./dt-slaves.json", "Set config `filename`")
-		fSet.StringVar(&targetsConfigNameAndPath, "targets", "./dt-targets.json", "Set config `filename`")
 		fSet.StringVar(&dbNameAndPath, "db", "./disttrace.db", "Set database `filename`")
 		fSet.StringVar(&mainLogNameAndPath, "log", "./dt-master.log", "Main logfile location `/path/to/file`")
 		fSet.StringVar(&accessLogNameAndPath, "accesslog", "./dt-access.log", "HTTP access logfile location `/path/to/file`")
@@ -640,8 +625,6 @@ func main() {
 		fSet.Parse(os.Args[1:])
 
 		var errMasterCfg, errTargetsCfg, errMainLog, errAccessLog, errDb error
-		masterConfigNameAndPath, errMasterCfg = disttrace.CleanAndCheckFileNameAndPath(masterConfigNameAndPath)
-		targetsConfigNameAndPath, errTargetsCfg = disttrace.CleanAndCheckFileNameAndPath(targetsConfigNameAndPath)
 		mainLogNameAndPath, errMainLog = disttrace.CleanAndCheckFileNameAndPath(mainLogNameAndPath)
 		accessLogNameAndPath, errAccessLog = disttrace.CleanAndCheckFileNameAndPath(accessLogNameAndPath)
 		dbNameAndPath, errDb = disttrace.CleanAndCheckFileNameAndPath(dbNameAndPath)
@@ -670,15 +653,10 @@ func main() {
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
-	disttrace.DebugPrintAllArguments(masterConfigNameAndPath, mainLogNameAndPath, logLevel)
+	disttrace.DebugPrintAllArguments(mainLogNameAndPath, logLevel)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
-
-	// create master configuration
-	var pCfg = new(disttrace.GenericConfig)
-	pCfg.MasterConfig = new(disttrace.MasterConfig)
-	var ppCfg = &pCfg
 
 	// init database connection
 	{
@@ -689,11 +667,8 @@ func main() {
 		log.Info("Main: Database connection initiated...")
 	}
 
-	log.Info("Main: Launching config poller process...")
-	go disttrace.MasterConfigPoller(db, ppCfg)
-
 	log.Info("Main: Launching http server process...")
-	go httpServer(ppCfg, accessLogNameAndPath, targetsConfigNameAndPath)
+	go httpServer(accessLogNameAndPath)
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")
