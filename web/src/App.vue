@@ -21,7 +21,12 @@
       <v-list>
         <template v-for="(item, i) in items">
           <!-- Menu entries -->
-          <v-list-item v-if="item.icon" :to="item.to" :key="i" color="primary">
+          <v-list-item
+            v-if="item.icon"
+            :to="item.to"
+            :key="i"
+            color="secondary"
+          >
             <v-list-item-action>
               <v-icon>{{ item.icon }}</v-icon>
             </v-list-item-action>
@@ -36,7 +41,7 @@
           </v-list-item>
 
           <!-- Dividers -->
-          <v-divider v-else-if="item.divider" :key="i" dark class="mb-2" />
+          <v-divider v-else-if="item.divider" :key="i" class="mb-2" />
         </template>
       </v-list>
     </v-navigation-drawer>

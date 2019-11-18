@@ -18,7 +18,7 @@
                 v-on="on"
                 small
                 class="mr-1"
-                color="primary"
+                color="secondary"
                 @click="
                   $router.push({
                     name: 'graph',

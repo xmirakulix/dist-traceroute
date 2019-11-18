@@ -40,7 +40,7 @@
             <v-card-actions>
               <v-spacer />
               <v-btn
-                color="primary"
+                color="secondary"
                 @click="login"
                 type="submit"
                 :disabled="waiting"

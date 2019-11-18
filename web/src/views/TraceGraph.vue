@@ -21,9 +21,13 @@
               min="0"
               max="20"
               v-on:end="setSkipVal"
+              color="accent"
+              track-color="accent lighten-5"
             >
               <template v-slot:prepend>
-                <v-icon small class="mt-1">fas fa-eye-slash fa-xs</v-icon>
+                <v-icon color="accent" small class="mt-1"
+                  >fas fa-eye-slash fa-xs</v-icon
+                >
               </template>
             </v-slider>
           </v-col>
