@@ -49,7 +49,7 @@ func CheckSlaveAuth(db *DB, user string, secret string) bool {
 }
 
 // GetSlaves reads all slaves from the db
-func GetSlaves(db *DB, slaveName string) ([]Slave, error) {
+func GetSlaves(db *DB) ([]Slave, error) {
 
 	slaves := []Slave{}
 
