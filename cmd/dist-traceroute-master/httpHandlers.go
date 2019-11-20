@@ -12,6 +12,7 @@ import (
 
 	valid "github.com/asaskevich/govalidator"
 	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 )
 
@@ -21,7 +22,7 @@ var lastTransmittedSlaveConfigTime time.Time
 
 func checkSlaveCredentials(slave *disttrace.Slave, writer http.ResponseWriter, req *http.Request) bool {
 
-	if disttrace.CheckSlaveAuth(db, slave.Name, slave.Password) {
+	if disttrace.CheckSlaveAuth(db, slave.Name, slave.Secret) {
 		return true
 	}
 
@@ -83,13 +84,7 @@ func httpHandleAPIStatus() http.HandlerFunc {
 			lastTransmittedSlaveConfig,
 		}
 
-		resJSON, _ := json.MarshalIndent(response, "", "	")
-
-		if _, err := writer.Write(resJSON); err != nil {
-			log.Warn("httpHandleAPIStatus: Couldn't write response: ", err)
-		}
-
-		log.Debug("httpHandleAPIStatus: Replying with success.")
+		generateJSONResponse(writer, req, response)
 	}
 }
 
@@ -203,17 +198,7 @@ func httpHandleAPITraceHistory() http.HandlerFunc {
 			rows = append(rows, t)
 		}
 
-		var response []byte
-		if response, err = json.MarshalIndent(rows, "", "	"); err != nil {
-			http.Error(writer, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if _, err := writer.Write(response); err != nil {
-			log.Warn("httpHandleAPITraceHistory: Couldn't write response: ", err)
-		}
-
-		log.Debug("httpHandleAPITraceHistory: Replying with success.")
+		generateJSONResponse(writer, req, rows)
 	}
 }
 
@@ -372,20 +357,7 @@ func httpHandleSlaveResults() http.HandlerFunc {
 			RetryPossible: true,
 		}
 
-		responseJSON, err := json.Marshal(response)
-		if err != nil {
-			http.Error(writer, "Error: Couldn't marshal success response into JSON", http.StatusInternalServerError)
-			log.Warn("httpHandleSlaveResults: Error: Couldn't marshal success response into JSON: ", err)
-			return
-		}
-
-		// Success!
-		_, err = io.WriteString(writer, string(responseJSON))
-		if err != nil {
-			log.Warn("httpHandleSlaveResults: Couldn't write success response: ", err)
-		}
-		log.Debug("httpHandleSlaveResults: Replying success.")
-		return
+		generateJSONResponse(writer, req, response)
 	}
 }
 
@@ -500,7 +472,7 @@ func checkJWTAuth(writer http.ResponseWriter, req *http.Request, next http.Handl
 func handleAccessControl(writer http.ResponseWriter, req *http.Request, next http.HandlerFunc) {
 
 	writer.Header().Add("Access-Control-Allow-Origin", "*")
-	writer.Header().Add("Access-Control-Allow-Methods", "DELETE, POST, GET, OPTIONS")
+	writer.Header().Add("Access-Control-Allow-Methods", "DELETE, POST, GET, OPTIONS, PUT")
 	writer.Header().Add("Access-Control-Allow-Headers", "Content-Type, Access-Control-Allow-Headers, Authorization, X-Requested-With")
 
 	if req.Method == "OPTIONS" {
@@ -518,13 +490,94 @@ func httpHandleAPIUsers() http.HandlerFunc {
 	}
 }
 
-func httpHandleAPISlaves() http.HandlerFunc {
+func httpHandleAPISlavesList() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpHandleAPISlaves: Received API 'slaves' request")
+		log.Debug("httpHandleAPISlavesList: Received API 'slaves' request, method: ", req.Method)
 
-		type Slave struct {
+		slaves, err := disttrace.GetSlaves(db)
+		if err != nil {
+			log.Warn("httpHandleAPISlavesList: Error: Couldn't get slaves from db, Error: ", err)
+			http.Error(writer, "Couldn't get slaves from db", http.StatusInternalServerError)
+			return
 		}
 
+		generateJSONResponse(writer, req, slaves)
+	}
+}
+
+func httpHandleAPISlavesCreate() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		name := req.URL.Query().Get("name")
+		secret := req.URL.Query().Get("secret")
+
+		log.Debug("httpHandleAPISlavesCreate: Received API 'slaves' request, method: ", req.Method)
+
+		if len(name) == 0 || len(secret) == 0 {
+			log.Debugf("httpHandleAPISlavesCreate: Name: '%v' or secret: '%v' missing, returning bar request", name, secret)
+			http.Error(writer, "name or secret missing", http.StatusBadRequest)
+			return
+		}
+
+		slave := disttrace.Slave{
+			Name:   name,
+			Secret: secret,
+		}
+
+		newslave, err := disttrace.CreateSlave(db, slave)
+		if err != nil {
+			log.Warn("httpHandleAPISlavesCreate: Error while creating slave, Error: ", err)
+			http.Error(writer, "Error while creating slave", http.StatusInternalServerError)
+			return
+		}
+
+		// HTTP 201 Created
+		writer.WriteHeader(201)
+		generateJSONResponse(writer, req, newslave)
+	}
+}
+
+func httpHandleAPISlavesUpdate() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debugf("httpHandleAPISlavesUpdate: Received API 'slaves' request, method: '%v'", req.Method)
+
+		var slave disttrace.Slave
+		decoder := json.NewDecoder(req.Body)
+		if err := decoder.Decode(&slave); err != nil {
+			log.Warn("httpHandleAPISlavesUpdate: Couldn't decode request body, Error: ", err)
+			http.Error(writer, "Couldn't decode request body", http.StatusBadRequest)
+			return
+		}
+
+		_, err := disttrace.UpdateSlave(db, slave)
+		if err != nil {
+			log.Warn("httpHandleAPISlavesUpdate: Error while updating slave, Error: ", err)
+			http.Error(writer, "Error while updating slave", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, slave)
+	}
+}
+
+func httpHandleAPISlavesDelete() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		vars := mux.Vars(req)
+		log.Debugf("httpHandleAPISlavesDelete: Received API 'slaves' request, method: '%v', ID: '%v'", req.Method, vars["slaveID"])
+
+		slaveID, err := uuid.Parse(vars["slaveID"])
+		if err != nil {
+			log.Debugf("httpHandleAPISlavesDelete: Received delete request for invalid slave, ID: '%v', Error: %v", slaveID, err)
+			http.Error(writer, "Received delete request for invalid slave", http.StatusBadRequest)
+			return
+		}
+
+		if err = disttrace.DeleteSlave(db, slaveID); err != nil {
+			log.Warn("httpHandleAPISlavesDelete: Error while deleting slave, Error: ", err)
+			http.Error(writer, "Error while deleting slave", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, disttrace.Slave{ID: slaveID})
 	}
 }
 
@@ -533,4 +586,23 @@ func httpHandleAPITargets() http.HandlerFunc {
 		log.Debug("httpHandleAPITargets: Received API 'targets' request")
 
 	}
+}
+
+// generateJSONResponse takes an object, and returns it as JSON object in the response body
+func generateJSONResponse(writer http.ResponseWriter, req *http.Request, val interface{}) {
+	json, err := json.MarshalIndent(val, "", "	")
+	if err != nil {
+		log.Warn("generateJSONResponse: Error: marshal slaves into json, Error: ", err)
+		http.Error(writer, "Couldn't marshal data into json", http.StatusInternalServerError)
+		return
+	}
+
+	_, err = writer.Write(json)
+	if err != nil {
+		log.Warn("generateJSONResponse: Couldn't write response: ", err)
+		return
+	}
+
+	log.Debugf("generateJSONResponse: Successfully finished...")
+	return
 }

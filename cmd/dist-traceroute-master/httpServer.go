@@ -8,6 +8,8 @@ import (
 	"time"
 
 	ghandlers "github.com/gorilla/handlers"
+	"github.com/gorilla/mux"
+
 	"github.com/urfave/negroni"
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 )
@@ -25,17 +27,22 @@ func httpServer(accessLog string) {
 	}
 
 	// handle slaves
-	slaveRouter := http.NewServeMux()
+	slaveRouter := mux.NewRouter()
 	slaveRouter.HandleFunc("/slave/results", httpHandleSlaveResults())
 	slaveRouter.HandleFunc("/slave/config", httpHandleSlaveConfig())
 
 	// handle api requests from webinterface
-	apiRouter := http.NewServeMux()
+	apiRouter := mux.NewRouter()
 	apiRouter.HandleFunc("/api/status", httpHandleAPIStatus())
 	apiRouter.HandleFunc("/api/traces", httpHandleAPITraceHistory())
 	apiRouter.HandleFunc("/api/graph", httpHandleAPIGraphData())
 	apiRouter.HandleFunc("/api/users", httpHandleAPIUsers())
-	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlaves())
+
+	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesList()).Methods("GET")
+	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesCreate()).Methods("POST")
+	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesUpdate()).Methods("PUT")
+	apiRouter.HandleFunc("/api/slaves/{slaveID}", httpHandleAPISlavesDelete()).Methods("DELETE")
+
 	apiRouter.HandleFunc("/api/targets", httpHandleAPITargets())
 
 	authHandler := negroni.New()
@@ -55,8 +62,11 @@ func httpServer(accessLog string) {
 	rootHandler.Use(negroni.Wrap(ghandlers.CombinedLoggingHandler(accessWriter, rootRouter)))
 
 	srv := &http.Server{
-		Addr:    ":8990",
-		Handler: rootHandler,
+		Addr:         ":8990",
+		WriteTimeout: time.Second * 15,
+		ReadTimeout:  time.Second * 15,
+		IdleTimeout:  time.Second * 60,
+		Handler:      rootHandler,
 	}
 
 	// start server...
