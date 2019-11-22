@@ -33,8 +33,10 @@ const actions = {
         rootGetters["getAuthHeader"]
       );
       commit("addSlave", response.data);
+      return response.data;
     } catch (error) {
       console.log("Error caught: " + error);
+      return false;
     }
   },
 
@@ -47,8 +49,10 @@ const actions = {
         rootGetters["getAuthHeader"]
       );
       commit("updateSlave", response.data);
+      return response.data;
     } catch (error) {
       console.log("Error caught: " + error);
+      return false;
     }
   },
 
@@ -60,8 +64,10 @@ const actions = {
         rootGetters["getAuthHeader"]
       );
       commit("removeSlave", response.data.ID);
+      return response.data;
     } catch (error) {
       console.log("Error caught: " + error);
+      return false;
     }
   }
 };
