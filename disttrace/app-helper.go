@@ -2,7 +2,6 @@ package disttrace
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"flag"
 	"os"
@@ -78,30 +77,9 @@ func printUsage(fSet flag.FlagSet) {
 
 }
 
-// PrintMasterUsageAndExit prints usage instructions for cmdline arguments
-func PrintMasterUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
+// PrintUsageAndExit prints usage instructions for cmdline arguments
+func PrintUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
 	printUsage(fSet)
-
-	switch exitWithError {
-	case true:
-		os.Exit(1)
-	default:
-		os.Exit(0)
-	}
-}
-
-// PrintSlaveUsageAndExit prints usage instructions for cmdline arguments
-func PrintSlaveUsageAndExit(fSet flag.FlagSet, exitWithError bool) {
-
-	printUsage(fSet)
-
-	// create sample config file
-	def := new(SlaveConfig)
-	target := TraceTarget{}
-	def.Targets = append(def.Targets, target)
-	defJSON, _ := json.MarshalIndent(def, "", "  ")
-
-	log.Warn("Sample configuration file: \n", string(defJSON))
 
 	switch exitWithError {
 	case true:

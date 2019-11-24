@@ -364,15 +364,15 @@ func main() {
 		switch {
 		case !okSlave || (!valid.IsDNSName(masterHost) && !valid.IsIP(masterHost)) || !valid.IsPort(masterPort):
 			log.Warn("Error: No or invalid arguments for master, master-port or credentials, can't run, Bye.")
-			disttrace.PrintSlaveUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		case errLog != nil:
 			log.Warn("Error: Invalid log path specified, can't run, Bye.")
-			disttrace.PrintSlaveUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
 			log.Warn("Error: Invalid loglevel specified, can't run, Bye.")
-			disttrace.PrintSlaveUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		case sendHelp:
-			disttrace.PrintSlaveUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		}
 	}
 

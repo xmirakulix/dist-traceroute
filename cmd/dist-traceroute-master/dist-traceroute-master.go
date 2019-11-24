@@ -51,15 +51,15 @@ func main() {
 		switch {
 		case errMainLog != nil || errAccessLog != nil:
 			log.Warn("Error: Invalid log path specified, can't run, Bye.")
-			disttrace.PrintMasterUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		case errDb != nil:
 			log.Warn("Error: Invalid database path specified, can't run, Bye.")
-			disttrace.PrintMasterUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		case logLevel != "warn" && logLevel != "info" && logLevel != "debug":
 			log.Warn("Error: Invalid loglevel specified, can't run, Bye.")
-			disttrace.PrintMasterUsageAndExit(fSet, true)
+			disttrace.PrintUsageAndExit(fSet, true)
 		case sendHelp:
-			disttrace.PrintMasterUsageAndExit(fSet, false)
+			disttrace.PrintUsageAndExit(fSet, false)
 		}
 	}
 
