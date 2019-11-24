@@ -253,6 +253,17 @@ func httpHandleSlaveResults() http.HandlerFunc {
 		}
 		result.Slave.ID = slaveID
 
+		// check data
+		if target, err := disttrace.GetTarget(result.Target.ID, db); err != nil {
+			log.Warnf("httpHandleSlaveResults: Couldn't get Target '%v', Error: %v", result.Target.ID, err)
+			http.Error(writer, "Couldn't get Target", http.StatusInternalServerError)
+			return
+		} else if target.ID == uuid.Nil {
+			log.Debug("httpHandleSlaveResults: Bogus result, Supplied target ID doesn't match a target in the DB, returning BadRequest")
+			http.Error(writer, "Supplied target ID doesn't match a target in the DB", http.StatusBadRequest)
+			return
+		}
+
 		log.Infof("httpHandleSlaveResults: Received results from slave '%v' for target '%v'. Success: %v, Hops: %v.",
 			result.Slave.Name, result.Target.Name,
 			result.Success, result.HopCount,
