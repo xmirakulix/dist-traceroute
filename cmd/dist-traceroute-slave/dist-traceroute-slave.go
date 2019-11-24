@@ -355,7 +355,7 @@ func main() {
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		slave = disttrace.Slave{Name: slaveName, Password: slavePwd}
+		slave = disttrace.Slave{Name: slaveName, Secret: slavePwd}
 		okSlave, _ := valid.ValidateStruct(slave)
 		var errLog error
 		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
@@ -381,7 +381,7 @@ func main() {
 
 	// let's Go! :)
 	log.Warn("Main: Starting...")
-	disttrace.DebugPrintAllArguments(masterHost, masterPort, slave.Name, slave.Password, logPathAndName, logLevel)
+	disttrace.DebugPrintAllArguments(masterHost, masterPort, slave.Name, slave.Secret, logPathAndName, logLevel)
 
 	// setup listener for OS exit signals
 	disttrace.ListenForOSSignals()
