@@ -2,7 +2,7 @@
   <div>
     <h1>Trace Graph</h1>
     <v-container>
-      <p>Destination: {{ dest }}</p>
+      <p>Destination: {{ destID }}</p>
       <p>
         Graph interval:
         {{ dateFormat(new Date(graphStart), "yyyy-mm-dd HH:MM:ss") }}
@@ -35,7 +35,7 @@
         <v-row dense>
           <v-col>
             <GChart
-              v-if="dest != '-1'"
+              v-if="destID != '-1'"
               type="Sankey"
               :data="chartData"
               :options="chartOptions"
@@ -73,7 +73,8 @@ export default {
           }
         }
       },
-      dest: "",
+      destID: "",
+      slaveID: "",
       skip: 0,
 
       interval: [0, 0]
@@ -81,8 +82,13 @@ export default {
   },
 
   created() {
-    this.dest = this.$route.params.dest;
-    this.fetchGraphData({ dest: this.dest, skip: this.skip });
+    this.destID = this.$route.params.destID;
+    this.slaveID = this.$route.params.slaveID;
+    this.fetchGraphData({
+      destID: this.destID,
+      slaveID: this.slaveID,
+      skip: 0
+    });
   },
 
   components: {
@@ -94,7 +100,11 @@ export default {
     dateFormat,
 
     setSkipVal(val) {
-      this.fetchGraphData({ dest: this.dest, skip: val });
+      this.fetchGraphData({
+        destID: this.destID,
+        slaveID: this.slaveID,
+        skip: val
+      });
     }
   },
   computed: {

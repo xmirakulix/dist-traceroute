@@ -90,14 +90,13 @@ func httpHandleAPIStatus() http.HandlerFunc {
 
 func httpHandleAPIGraphData() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		dest := req.URL.Query().Get("dest")
+		destID, err := uuid.Parse(req.URL.Query().Get("destID"))
+		slaveID, err := uuid.Parse(req.URL.Query().Get("slaveID"))
 		skip, _ := strconv.Atoi(req.URL.Query().Get("skip"))
-		start := req.URL.Query().Get("start")
-		end := req.URL.Query().Get("end")
 
-		log.Debugf("httpHandleAPIGraphData: Received API 'graphdata' request, dest: <%v>, skip: <%v>, start<%v>, end<%v>", dest, skip, start, end)
+		log.Debugf("httpHandleAPIGraphData: Received API 'graphdata' request, dest: <%v>, skip: <%v>, %v", destID, skip, err)
 
-		if len(dest) < 1 {
+		if destID == uuid.Nil || slaveID == uuid.Nil {
 			log.Info("httpHandleAPIGraphData: Parameter dest missing or empty, returning error.")
 			http.Error(writer, "Parameter dest missing or empty", http.StatusBadRequest)
 			return
@@ -115,17 +114,18 @@ func httpHandleAPIGraphData() http.HandlerFunc {
 				FROM t_Hops h  
 				JOIN t_Traceroutes t ON t.strTracerouteId = h.strTracerouteId
 				JOIN t_Targets tg ON t.strTargetId = tg.strTargetId
+				JOIN t_Slaves s ON t.strSlaveId = s.strSlaveId
 				LEFT JOIN t_Hops prev ON h.strPreviousHopId = prev.strHopId
 
-				WHERE tg.strDestination = ? AND h.nHopIndex > ?
+				WHERE tg.strTargetID = ? AND s.strSlaveId = ? AND h.nHopIndex > ?
 
 				GROUP BY h.strHopIPAddress, h.nHopIndex, prevHopAddress
 				ORDER BY h.nHopIndex
 			) t
-			GROUP BY t.strDestination 
+			GROUP BY t.strDestination
 			`
 
-		resRow := db.QueryRow(query, dest, skip)
+		resRow := db.QueryRow(query, destID, slaveID, skip)
 		var resStart, resEnd, resGraphData string
 		if err := resRow.Scan(&resStart, &resEnd, &resGraphData); err != nil {
 			if err == sql.ErrNoRows {
@@ -153,7 +153,7 @@ func httpHandleAPITraceHistory() http.HandlerFunc {
 		log.Debugf("httpHandleAPITraceHistory: Received API 'tracehistory' request, limit: <%v>", limit)
 
 		lastResultsQuery := `
-		SELECT t.strTracerouteId, s.strSlaveName, tg.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.strHopId) AS nHopCount, 
+		SELECT t.strTracerouteId, s.strSlaveId, s.strSlaveName, tg.strTargetId, tg.strDestination, strftime("%d.%m.%Y %H:%M", t.dtStart) AS dtStart, COUNT(h.strHopId) AS nHopCount, 
 			json_group_object(h.nHopIndex, json_object('IP', h.strHopIPAddress, 'DNS', h.strHopDNSName, 'Duration', h.dDurationSec)) AS strHopDetails
 		FROM t_Traceroutes t 
 		JOIN t_Slaves s ON t.strSlaveId = s.strSlaveId 
@@ -179,18 +179,20 @@ func httpHandleAPITraceHistory() http.HandlerFunc {
 
 		type trace struct {
 			TraceID    uuid.UUID
-			HopCnt     int64
+			SlaveID    uuid.UUID
 			SlaveName  string
+			DestID     uuid.UUID
 			DestName   string
-			DetailJSON string
 			StartTime  string
+			HopCnt     int64
+			DetailJSON string
 		}
 
 		rows := []trace{}
 
 		for resRows.Next() {
 			var t trace
-			if err = resRows.Scan(&t.TraceID, &t.SlaveName, &t.DestName, &t.StartTime, &t.HopCnt, &t.DetailJSON); err != nil {
+			if err = resRows.Scan(&t.TraceID, &t.SlaveID, &t.SlaveName, &t.DestID, &t.DestName, &t.StartTime, &t.HopCnt, &t.DetailJSON); err != nil {
 				log.Warn("httpHandleAPITraceHistory: Couldn't read DB result set, Error: ", err)
 				http.Error(writer, "Couldn't read DB result set", http.StatusInternalServerError)
 				return

@@ -26,6 +26,12 @@
             :to="item.to"
             :key="i"
             color="secondary"
+            :exact="item.to == '/' ? true : false"
+            :class="
+              item.to.name == 'graph' && $route.name == 'graph'
+                ? 'v-list-item--active'
+                : ''
+            "
           >
             <v-list-item-action>
               <v-icon>{{ item.icon }}</v-icon>
@@ -90,7 +96,7 @@ export default {
         {
           icon: "fa-project-diagram",
           text: "Trace Graph",
-          to: { name: "graph", params: { dest: -1 } }
+          to: { name: "graph", params: { destID: -1, slaveID: -1 } }
         },
         { heading: "Configuration" },
         { divider: true },

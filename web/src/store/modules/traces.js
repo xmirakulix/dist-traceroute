@@ -34,7 +34,7 @@ const actions = {
     if (!rootGetters["isAuthorized"]) return;
     try {
       const response = await axios.get(
-        `http://localhost:8990/api/graph?dest=${payload.dest}&skip=${payload.skip}`,
+        `http://localhost:8990/api/graph?destID=${payload.destID}&slaveID=${payload.slaveID}&skip=${payload.skip}`,
         rootGetters["getAuthHeader"]
       );
       commit("setGraphData", response.data.Data);

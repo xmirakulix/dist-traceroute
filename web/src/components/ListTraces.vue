@@ -22,7 +22,7 @@
                 @click="
                   $router.push({
                     name: 'graph',
-                    params: { dest: item.DestName }
+                    params: { destID: item.DestID, slaveID: item.SlaveID }
                   })
                 "
               >
