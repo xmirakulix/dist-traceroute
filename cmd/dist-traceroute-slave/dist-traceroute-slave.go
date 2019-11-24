@@ -53,7 +53,7 @@ func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txB
 	// shall we create fake results?
 	if debugMode {
 		jsonStr := "{" +
-			"\"Creds\":{\"Name\":\"slave\",\"Password\":\"123\"}," +
+			"\"Creds\":{\"Name\":\"slave\",\"Secret\":\"123\"}," +
 			"\"ID\":\"d9bbc544-eabe-4536-a9ed-ec6cbdaaedb0\"," +
 			"\"DateTime\":\"2019-02-07T21:06:10.803086+01:00\"," +
 			"\"Target\":{\"Name\":\"Google\",\"Address\":\"www.google.at\"}," +
@@ -340,7 +340,7 @@ func main() {
 	// check cmdline args
 	{
 		var sendHelp bool
-		var slaveName, slavePwd string
+		var slaveName, slaveSecret string
 
 		fSet := flag.FlagSet{}
 		outBuf := bytes.NewBuffer([]byte{})
@@ -348,14 +348,14 @@ func main() {
 		fSet.StringVar(&masterHost, "master", "", "Set the `hostname`/IP of the master server")
 		fSet.StringVar(&masterPort, "master-port", "8990", "Set the listening `port (optional)` of the master server")
 		fSet.StringVar(&slaveName, "name", "", "Unique `name` of this slave used on master for authentication and storage of results")
-		fSet.StringVar(&slavePwd, "passwd", "", "Shared `secret` for slave on master")
+		fSet.StringVar(&slaveSecret, "secret", "", "Shared `secret` for slave on master")
 		fSet.StringVar(&logPathAndName, "log", "./slave.log", "Logfile location `/path/to/file`")
 		fSet.StringVar(&logLevel, "loglevel", "info", "Specify loglevel, one of `warn, info, debug`")
 		fSet.BoolVar(&debugMode, "zDebugResults", false, "Generate fake results, e.g. when run without root permissions")
 		fSet.BoolVar(&sendHelp, "help", false, "display this message")
 		fSet.Parse(os.Args[1:])
 
-		slave = disttrace.Slave{Name: slaveName, Secret: slavePwd}
+		slave = disttrace.Slave{Name: slaveName, Secret: slaveSecret}
 		okSlave, _ := valid.ValidateStruct(slave)
 		var errLog error
 		logPathAndName, errLog = disttrace.CleanAndCheckFileNameAndPath(logPathAndName)
