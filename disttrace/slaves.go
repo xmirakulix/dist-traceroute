@@ -49,6 +49,28 @@ func CheckSlaveAuth(db *DB, user string, secret string) (bool, uuid.UUID) {
 	return true, slaveID
 }
 
+// GetSlave returns the specified slave from DB
+func GetSlave(slaveID uuid.UUID, db *DB) (Slave, error) {
+
+	log.Debug("GetSlave: fetching slave with ID: ", slaveID)
+	slave := Slave{}
+
+	query := "SELECT strSlaveID, strSlaveName, strSlaveSecret FROM t_Slaves WHERE strSlaveId = ?"
+
+	row := db.QueryRow(query, slaveID)
+	if err := row.Scan(&slave.ID, &slave.Name, &slave.Secret); err != nil {
+		if err == sql.ErrNoRows {
+			log.Debug("GetSlave: Couldn't find specified slave in DB...")
+			return Slave{}, nil
+		}
+		log.Debug("GetSlave: Error while getting slave from DB, Error: ", err)
+		return Slave{}, errors.New("Error while getting slave from DB")
+	}
+
+	log.Debug("GetSlave: Returning slave name '%v' for ID '%v'", slave.Name, slave.ID)
+	return slave, nil
+}
+
 // GetSlaves reads all slaves from the db
 func GetSlaves(db *DB) ([]Slave, error) {
 
@@ -58,7 +80,7 @@ func GetSlaves(db *DB) ([]Slave, error) {
 	query := "SELECT strSlaveId, strSlaveName, strSlaveSecret FROM t_Slaves"
 	rows, err := db.Query(query)
 	if err != nil {
-		log.Warn("getMasterConfigFromDB: Couldn't get slaves from db, Error: ", err)
+		log.Warn("GetSlaves: Couldn't get slaves from db, Error: ", err)
 		return slaves, errors.New("Couldn't get slaves")
 	}
 	defer rows.Close()
@@ -66,7 +88,7 @@ func GetSlaves(db *DB) ([]Slave, error) {
 	for rows.Next() {
 		var slave = Slave{}
 		if err := rows.Scan(&slave.ID, &slave.Name, &slave.Secret); err != nil {
-			log.Warn("getMasterConfigFromDB: Couldn't read results from slaves, Error: ", err)
+			log.Warn("GetSlaves: Couldn't read results from db, Error: ", err)
 			return []Slave{}, errors.New("Couldn't get slaves")
 		}
 		slaves = append(slaves, slave)
