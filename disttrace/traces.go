@@ -11,16 +11,6 @@ import (
 	valid "github.com/asaskevich/govalidator"
 )
 
-// TraceTarget contains information about a single dist-traceroute target
-type TraceTarget struct {
-	ID        uuid.UUID `valid:"-"`
-	Name      string    `valid:"alphanum,	required"`
-	Address   string    `valid:"host,		required"`
-	Retries   int       `valid:"int,	required,	range(0|10)"`
-	MaxHops   int       `valid:"int,	required,	range(1|100)"`
-	TimeoutMs int       `valid:"int,	required,	range(1|10000)"`
-}
-
 // TraceResult holds all relevant information of a single traceroute run
 type TraceResult struct {
 	Slave    Slave                   `valid:"		required"`
