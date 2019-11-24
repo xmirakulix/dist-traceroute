@@ -9,7 +9,7 @@ import (
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
-	ID         uuid.UUID     `json:"omitempty" valid:"-"`
+	ID         uuid.UUID     `json:",omitempty" valid:"-"`
 	MasterHost string        `json:"-" valid:"-"`
 	MasterPort string        `json:"-" valid:"-"`
 	Targets    []TraceTarget `valid:"-"`
@@ -17,7 +17,7 @@ type SlaveConfig struct {
 
 // Slave holds all infos about a slave
 type Slave struct {
-	ID     uuid.UUID `json:"omitempty" valid:"-"`
+	ID     uuid.UUID `json:",omitempty" valid:"-"`
 	Name   string    `valid:"alphanum,	required"`
 	Secret string    `valid:"alphanum,	required"`
 }

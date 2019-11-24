@@ -13,6 +13,7 @@ import (
 // TODO add option to post results to elastic
 // TODO https/TLS
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
+// TODO slave shutdown takes too long during measurements
 
 // TODO GUI: refresh trace history together with status on home page
 
