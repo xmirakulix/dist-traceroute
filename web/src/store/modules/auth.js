@@ -45,7 +45,8 @@ const mutations = {
   setToken: (state, token) => {
     state.token = token;
     state.claims = jwtDecode(token);
-    if (router.currentRoute != "/") {
+    if (router.currentRoute.path != "/") {
+      console.log(router);
       router.push("/");
     }
   },
