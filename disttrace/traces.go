@@ -32,6 +32,7 @@ type SubmitResult struct {
 // ValidateTraceResult validates contents of a TraceResult
 func ValidateTraceResult(res TraceResult) (bool, error) {
 
+	log.Debugf("ValidateTraceResult: Validating trace results for target '%v' from slave '%v'", res.Target, res.Slave.Name)
 	// check credentials and tracetargets
 	if ok, err := valid.ValidateStruct(res); !ok || err != nil {
 		return false, err
@@ -40,11 +41,13 @@ func ValidateTraceResult(res TraceResult) (bool, error) {
 	for _, hop := range res.Hops {
 		// check if IP is valid
 		if !valid.IsIP(hop.AddressString()) {
+			log.Debug("ValidateTraceResult: Invalid IP Address: ", hop.AddressString())
 			return false, errors.New("Invalid IP Address: " + hop.AddressString())
 		}
 
 		// check if hostname is valid if present
 		if hop.Host != "" && !valid.IsDNSName(hop.Host) {
+			log.Debug("ValidateTraceResult: Invalid IP Address: ", hop.AddressString())
 			return false, errors.New("Invalid IP Address: " + hop.AddressString())
 		}
 	}

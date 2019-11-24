@@ -63,7 +63,7 @@ func GetSlave(slaveID uuid.UUID, db *DB) (Slave, error) {
 			log.Debug("GetSlave: Couldn't find specified slave in DB...")
 			return Slave{}, nil
 		}
-		log.Debug("GetSlave: Error while getting slave from DB, Error: ", err)
+		log.Warn("GetSlave: Error while getting slave from DB, Error: ", err)
 		return Slave{}, errors.New("Error while getting slave from DB")
 	}
 
@@ -129,7 +129,7 @@ func UpdateSlave(db *DB, slave Slave) (Slave, error) {
 
 	numRows, err := res.RowsAffected()
 	if err != nil {
-		log.Debug("UpdateSlave: Error: Can't get number of affected rows, Error: ", err)
+		log.Warn("UpdateSlave: Error: Can't get number of affected rows, Error: ", err)
 		return Slave{}, errors.New("DB Error")
 	}
 
@@ -151,7 +151,7 @@ func DeleteSlave(db *DB, slaveID uuid.UUID) error {
 
 	numRows, err := res.RowsAffected()
 	if err != nil {
-		log.Debug("DeleteSlave: Error: Can't get number of affected rows, Error: ", err)
+		log.Warn("DeleteSlave: Error: Can't get number of affected rows, Error: ", err)
 		return errors.New("DB Error")
 	}
 

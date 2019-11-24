@@ -31,7 +31,7 @@ func GetTarget(targetID uuid.UUID, db *DB) (TraceTarget, error) {
 			log.Debug("GetTarget: Couldn't find specified target in DB...")
 			return TraceTarget{}, nil
 		}
-		log.Debug("GetTarget: Error while getting target from DB, Error: ", err)
+		log.Warn("GetTarget: Error while getting target from DB, Error: ", err)
 		return TraceTarget{}, errors.New("Error while getting target from DB")
 	}
 
@@ -102,7 +102,7 @@ func UpdateTarget(db *DB, target TraceTarget) (TraceTarget, error) {
 
 	numRows, err := res.RowsAffected()
 	if err != nil {
-		log.Debug("UpdateTarget: Error: Can't get number of affected rows, Error: ", err)
+		log.Warn("UpdateTarget: Error: Can't get number of affected rows, Error: ", err)
 		return TraceTarget{}, errors.New("DB Error")
 	}
 
@@ -124,7 +124,7 @@ func DeleteTarget(db *DB, targetID uuid.UUID) error {
 
 	numRows, err := res.RowsAffected()
 	if err != nil {
-		log.Debug("DeleteTarget: Error: Can't get number of affected rows, Error: ", err)
+		log.Warn("DeleteTarget: Error: Can't get number of affected rows, Error: ", err)
 		return errors.New("DB Error")
 	}
 
