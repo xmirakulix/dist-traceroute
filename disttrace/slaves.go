@@ -9,6 +9,7 @@ import (
 
 // SlaveConfig holds the configuration for a dist-traceroute-slave
 type SlaveConfig struct {
+	ID         uuid.UUID     `json:"omitempty" valid:"-"`
 	MasterHost string        `json:"-" valid:"-"`
 	MasterPort string        `json:"-" valid:"-"`
 	Targets    []TraceTarget `valid:"-"`
@@ -22,7 +23,7 @@ type Slave struct {
 }
 
 // CheckSlaveAuth checks supplied credentials for validity
-func CheckSlaveAuth(db *DB, user string, secret string) bool {
+func CheckSlaveAuth(db *DB, user string, secret string) (bool, uuid.UUID) {
 	log.Debugf("CheckSlaveAuth: Checking auth for slave<%v> secret<%v> for validity...", user, secret)
 
 	query := `
@@ -41,11 +42,11 @@ func CheckSlaveAuth(db *DB, user string, secret string) bool {
 		} else {
 			log.Warn("CheckSlaveAuth: Error while getting slave data, Error: ", err.Error())
 		}
-		return false
+		return false, uuid.Nil
 	}
 
 	log.Debug("CheckSlaveAuth: Slave auth are valid...")
-	return true
+	return true, slaveID
 }
 
 // GetSlaves reads all slaves from the db

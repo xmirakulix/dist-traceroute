@@ -20,17 +20,17 @@ import (
 var lastTransmittedSlaveConfig = "none yet"
 var lastTransmittedSlaveConfigTime time.Time
 
-func checkSlaveCredentials(slave *disttrace.Slave, writer http.ResponseWriter, req *http.Request) bool {
+func checkSlaveCredentials(slave *disttrace.Slave, writer http.ResponseWriter, req *http.Request) (bool, uuid.UUID) {
 
-	if disttrace.CheckSlaveAuth(db, slave.Name, slave.Secret) {
-		return true
+	if success, ID := disttrace.CheckSlaveAuth(db, slave.Name, slave.Secret); success == true {
+		return true, ID
 	}
 
 	// no match found, unauthorized!
 	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", slave.Name, req.RemoteAddr)
 	time.Sleep(2 * time.Second)
 	http.Error(writer, "Unauthorized", http.StatusUnauthorized)
-	return false
+	return false, uuid.Nil
 }
 
 func httpHandleAPIAuth() http.HandlerFunc {
@@ -245,9 +245,11 @@ func httpHandleSlaveResults() http.HandlerFunc {
 		}
 
 		// check authorization
-		if !checkSlaveCredentials(&result.Slave, writer, req) {
+		auth, slaveID := checkSlaveCredentials(&result.Slave, writer, req)
+		if !auth {
 			return
 		}
+		result.Slave.ID = slaveID
 
 		log.Infof("httpHandleSlaveResults: Received results from slave '%v' for target '%v'. Success: %v, Hops: %v.",
 			result.Slave.Name, result.Target.Name,
@@ -384,12 +386,13 @@ func httpHandleSlaveConfig() http.HandlerFunc {
 		}
 
 		// check authorization
-		if !checkSlaveCredentials(&slave, writer, req) {
+		auth, slaveID := checkSlaveCredentials(&slave, writer, req)
+		if !auth {
 			return
 		}
 
 		// read config from db
-		slaveConf := disttrace.SlaveConfig{}
+		slaveConf := disttrace.SlaveConfig{ID: slaveID}
 
 		query := "SELECT strTargetId, strDescription, strDestination, nRetries, nMaxHops, nTimeoutMSec FROM t_Targets"
 		rows, err := db.Query(query)

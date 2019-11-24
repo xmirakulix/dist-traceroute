@@ -193,8 +193,12 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slave dis
 		if workReceived {
 			log.Debug("txResultsToMaster: Sending: ", currentResult.Target.Name)
 
+			// get current config
+			cfg := **ppCfg
+
 			// prepare data to be sent
 			currentResult.Slave = slave
+			currentResult.Slave.ID = cfg.ID
 			resultJSON, err := json.Marshal(currentResult)
 			if err != nil {
 				log.Warn("txResultsToMaster: Error: Couldn't create result json: ", err)
@@ -203,9 +207,6 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slave dis
 			}
 
 			log.Debugf("txResultsToMaster: Transmitting, Content: %s", resultJSON)
-
-			// get current config
-			cfg := **ppCfg
 
 			// send data to master
 			url := "http://" + cfg.MasterHost + ":" + cfg.MasterPort + "/slave/results"
