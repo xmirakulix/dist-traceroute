@@ -12,9 +12,21 @@
             // "program": "${fileDirname}",
             "program": "cmd/dist-traceroute-master/dist-traceroute-master.go",
             "env": {},
-            "args": ["-loglevel=debug", "-master=localhost", ],
+            "args": ["-loglevel=debug" ],
             "showLog": true,
             "buildFlags":"-tags=json1",
+        },
+        {
+            "name": "Debug Slave",
+            "type": "go",
+            "request": "launch",
+            "mode": "debug",
+            // "program": "${fileDirname}",
+            "program": "cmd/dist-traceroute-slave/dist-traceroute-slave.go",
+            "env": {},
+            "args": ["-loglevel=debug", "-master=localhost", "-name=slave", "-secret=123"],
+            "showLog": true,
+            "buildFlags":"",
         }
     ]
 }

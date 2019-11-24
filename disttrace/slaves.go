@@ -16,7 +16,7 @@ type SlaveConfig struct {
 
 // Slave holds all infos about a slave
 type Slave struct {
-	ID     uuid.UUID `json: omitempty, valid:"-"`
+	ID     uuid.UUID `json:"omitempty" valid:"-"`
 	Name   string    `valid:"alphanum,	required"`
 	Secret string    `valid:"alphanum,	required"`
 }

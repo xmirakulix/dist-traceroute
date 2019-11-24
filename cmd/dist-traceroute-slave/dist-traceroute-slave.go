@@ -362,7 +362,7 @@ func main() {
 
 		// valid cmdline arguments or exit
 		switch {
-		case !okSlave || !valid.IsDNSName(masterHost) || !valid.IsPort(masterPort):
+		case !okSlave || (!valid.IsDNSName(masterHost) && !valid.IsIP(masterHost)) || !valid.IsPort(masterPort):
 			log.Warn("Error: No or invalid arguments for master, master-port or credentials, can't run, Bye.")
 			disttrace.PrintSlaveUsageAndExit(fSet, true)
 		case errLog != nil:
