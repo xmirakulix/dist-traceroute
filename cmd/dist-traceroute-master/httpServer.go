@@ -36,13 +36,16 @@ func httpServer(accessLog string) {
 	apiRouter.HandleFunc("/api/status", httpHandleAPIStatus())
 	apiRouter.HandleFunc("/api/traces", httpHandleAPITraceHistory())
 	apiRouter.HandleFunc("/api/graph", httpHandleAPIGraphData())
-	apiRouter.HandleFunc("/api/users", httpHandleAPIUsers())
 
 	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesList()).Methods("GET")
 	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesCreate()).Methods("POST")
 	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesUpdate()).Methods("PUT")
 	apiRouter.HandleFunc("/api/slaves/{slaveID}", httpHandleAPISlavesDelete()).Methods("DELETE")
 
+	apiRouter.HandleFunc("/api/users", httpHandleAPIUsersList()).Methods("GET")
+	apiRouter.HandleFunc("/api/users", httpHandleAPIUsersCreate()).Methods("POST")
+	apiRouter.HandleFunc("/api/users", httpHandleAPIUsersUpdate()).Methods("PUT")
+	apiRouter.HandleFunc("/api/users/{userID}", httpHandleAPIUsersDelete()).Methods("DELETE")
 
 	apiRouter.HandleFunc("/api/targets", httpHandleAPITargetsList()).Methods("GET")
 	apiRouter.HandleFunc("/api/targets", httpHandleAPITargetsCreate()).Methods("POST")

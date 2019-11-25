@@ -694,6 +694,99 @@ func httpHandleAPITargetsDelete() http.HandlerFunc {
 	}
 }
 
+func httpHandleAPIUsersList() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debug("httpHandleAPIUsersList: Received API 'users' request, method: ", req.Method)
+
+		users, err := disttrace.GetUsers(db)
+		if err != nil {
+			log.Warn("httpHandleAPIUsersList: Error: Couldn't get users from db, Error: ", err)
+			http.Error(writer, "Couldn't get users from db", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, users)
+	}
+}
+
+func httpHandleAPIUsersCreate() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		name := req.URL.Query().Get("name")
+		password := req.URL.Query().Get("password")
+		pwNeedsChange, _ := strconv.ParseBool(req.URL.Query().Get("pwNeedsChange"))
+
+		log.Debug("httpHandleAPIUsersCreate: Received API 'users' request, method: ", req.Method)
+
+		if len(name) == 0 || len(password) == 0 {
+			log.Debugf("httpHandleAPIUsersCreate: Name: '%v' or address: '%v' missing, returning bad request", name, password)
+			http.Error(writer, "name or password missing", http.StatusBadRequest)
+			return
+		}
+
+		user := disttrace.User{
+			Name:                name,
+			Password:            password,
+			PasswordNeedsChange: pwNeedsChange,
+		}
+
+		newUser, err := disttrace.CreateUser(db, user)
+		if err != nil {
+			log.Warn("httpHandleAPIUsersCreate: Error while creating user, Error: ", err)
+			http.Error(writer, "Error while creating user", http.StatusInternalServerError)
+			return
+		}
+
+		// HTTP 201 Created
+		writer.WriteHeader(201)
+		generateJSONResponse(writer, req, newUser)
+	}
+}
+
+func httpHandleAPIUsersUpdate() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debugf("httpHandleAPIUsersUpdate: Received API 'users' request, method: '%v'", req.Method)
+
+		var user disttrace.User
+		decoder := json.NewDecoder(req.Body)
+		if err := decoder.Decode(&user); err != nil {
+			log.Warn("httpHandleAPIUsersUpdate: Couldn't decode request body, Error: ", err)
+			http.Error(writer, "Couldn't decode request body", http.StatusBadRequest)
+			return
+		}
+
+		_, err := disttrace.UpdateUser(db, user)
+		if err != nil {
+			log.Warn("httpHandleAPIUsersUpdate: Error while updating user, Error: ", err)
+			http.Error(writer, "Error while updating user", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, user)
+	}
+}
+
+func httpHandleAPIUsersDelete() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		vars := mux.Vars(req)
+		log.Debugf("httpHandleAPIUsersDelete: Received API 'users' request, method: '%v', ID: '%v'", req.Method, vars["userID"])
+
+		userID, err := uuid.Parse(vars["userID"])
+		if err != nil {
+			log.Debugf("httpHandleAPIUsersDelete: Received delete request for invalid user, ID: '%v', Error: %v", userID, err)
+			http.Error(writer, "Received delete request for invalid user", http.StatusBadRequest)
+			return
+		}
+
+		if err = disttrace.DeleteUser(db, userID); err != nil {
+			log.Warn("httpHandleAPIUsersDelete: Error while deleting user, Error: ", err)
+			http.Error(writer, "Error while deleting user", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, disttrace.TraceTarget{ID: userID})
+	}
+}
+
 // generateJSONResponse takes an object, and returns it as JSON object in the response body
 func generateJSONResponse(writer http.ResponseWriter, req *http.Request, val interface{}) {
 	json, err := json.MarshalIndent(val, "", "	")
