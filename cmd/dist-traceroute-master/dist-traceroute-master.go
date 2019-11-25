@@ -14,7 +14,7 @@ import (
 // TODO https/TLS
 // TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
 // TODO slave shutdown takes too long during measurements
-// TODO dont store results for unknown slaves or targets
+// TODO don't accept results with loops
 
 // TODO GUI: refresh trace history together with status on home page
 

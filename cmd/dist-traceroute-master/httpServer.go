@@ -43,7 +43,11 @@ func httpServer(accessLog string) {
 	apiRouter.HandleFunc("/api/slaves", httpHandleAPISlavesUpdate()).Methods("PUT")
 	apiRouter.HandleFunc("/api/slaves/{slaveID}", httpHandleAPISlavesDelete()).Methods("DELETE")
 
-	apiRouter.HandleFunc("/api/targets", httpHandleAPITargets())
+
+	apiRouter.HandleFunc("/api/targets", httpHandleAPITargetsList()).Methods("GET")
+	apiRouter.HandleFunc("/api/targets", httpHandleAPITargetsCreate()).Methods("POST")
+	apiRouter.HandleFunc("/api/targets", httpHandleAPITargetsUpdate()).Methods("PUT")
+	apiRouter.HandleFunc("/api/targets/{targetID}", httpHandleAPITargetsDelete()).Methods("DELETE")
 
 	authHandler := negroni.New()
 	authHandler.Use(negroni.HandlerFunc(checkJWTAuth))

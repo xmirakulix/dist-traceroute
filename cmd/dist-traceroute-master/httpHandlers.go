@@ -529,7 +529,7 @@ func httpHandleAPISlavesCreate() http.HandlerFunc {
 		log.Debug("httpHandleAPISlavesCreate: Received API 'slaves' request, method: ", req.Method)
 
 		if len(name) == 0 || len(secret) == 0 {
-			log.Debugf("httpHandleAPISlavesCreate: Name: '%v' or secret: '%v' missing, returning bar request", name, secret)
+			log.Debugf("httpHandleAPISlavesCreate: Name: '%v' or secret: '%v' missing, returning bad request", name, secret)
 			http.Error(writer, "name or secret missing", http.StatusBadRequest)
 			return
 		}
@@ -597,10 +597,100 @@ func httpHandleAPISlavesDelete() http.HandlerFunc {
 	}
 }
 
-func httpHandleAPITargets() http.HandlerFunc {
+func httpHandleAPITargetsList() http.HandlerFunc {
 	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpHandleAPITargets: Received API 'targets' request")
+		log.Debug("httpHandleAPITargetsList: Received API 'targets' request, method: ", req.Method)
 
+		targets, err := disttrace.GetTargets(db)
+		if err != nil {
+			log.Warn("httpHandleAPITargetsList: Error: Couldn't get targets from db, Error: ", err)
+			http.Error(writer, "Couldn't get targets from db", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, targets)
+	}
+}
+
+func httpHandleAPITargetsCreate() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		name := req.URL.Query().Get("name")
+		address := req.URL.Query().Get("address")
+		retries, _ := strconv.Atoi(req.URL.Query().Get("retries"))
+		maxHops, _ := strconv.Atoi(req.URL.Query().Get("maxHops"))
+		timeout, _ := strconv.Atoi(req.URL.Query().Get("timeout"))
+
+		log.Debug("httpHandleAPITargetsCreate: Received API 'targets' request, method: ", req.Method)
+
+		if len(name) == 0 || len(address) == 0 {
+			log.Debugf("httpHandleAPITargetsCreate: Name: '%v' or address: '%v' missing, returning bad request", name, address)
+			http.Error(writer, "name or address missing", http.StatusBadRequest)
+			return
+		}
+
+		target := disttrace.TraceTarget{
+			Name:      name,
+			Address:   address,
+			Retries:   retries,
+			MaxHops:   maxHops,
+			TimeoutMs: timeout,
+		}
+
+		newTarget, err := disttrace.CreateTarget(db, target)
+		if err != nil {
+			log.Warn("httpHandleAPITargetsCreate: Error while creating target, Error: ", err)
+			http.Error(writer, "Error while creating target", http.StatusInternalServerError)
+			return
+		}
+
+		// HTTP 201 Created
+		writer.WriteHeader(201)
+		generateJSONResponse(writer, req, newTarget)
+	}
+}
+
+func httpHandleAPITargetsUpdate() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		log.Debugf("httpHandleAPITargetsUpdate: Received API 'targets' request, method: '%v'", req.Method)
+
+		var target disttrace.TraceTarget
+		decoder := json.NewDecoder(req.Body)
+		if err := decoder.Decode(&target); err != nil {
+			log.Warn("httpHandleAPITargetsUpdate: Couldn't decode request body, Error: ", err)
+			http.Error(writer, "Couldn't decode request body", http.StatusBadRequest)
+			return
+		}
+
+		_, err := disttrace.UpdateTarget(db, target)
+		if err != nil {
+			log.Warn("httpHandleAPITargetsUpdate: Error while updating target, Error: ", err)
+			http.Error(writer, "Error while updating target", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, target)
+	}
+}
+
+func httpHandleAPITargetsDelete() http.HandlerFunc {
+	return func(writer http.ResponseWriter, req *http.Request) {
+		vars := mux.Vars(req)
+		log.Debugf("httpHandleAPITargetsDelete: Received API 'targets' request, method: '%v', ID: '%v'", req.Method, vars["targetID"])
+
+		targetID, err := uuid.Parse(vars["targetID"])
+		if err != nil {
+			log.Debugf("httpHandleAPITargetsDelete: Received delete request for invalid target, ID: '%v', Error: %v", targetID, err)
+			http.Error(writer, "Received delete request for invalid target", http.StatusBadRequest)
+			return
+		}
+
+		if err = disttrace.DeleteTarget(db, targetID); err != nil {
+			log.Warn("httpHandleAPITargetsDelete: Error while deleting target, Error: ", err)
+			http.Error(writer, "Error while deleting target", http.StatusInternalServerError)
+			return
+		}
+
+		generateJSONResponse(writer, req, disttrace.TraceTarget{ID: targetID})
 	}
 }
 

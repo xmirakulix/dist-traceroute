@@ -75,6 +75,17 @@ func CreateTarget(db *DB, target TraceTarget) (TraceTarget, error) {
 	VALUES (?, ?, ?, ?, ?, ?)
 	`
 
+	// default values
+	if target.Retries == 0 {
+		target.Retries = 1
+	}
+	if target.MaxHops == 0 {
+		target.MaxHops = 30
+	}
+	if target.TimeoutMs == 0 {
+		target.TimeoutMs = 500
+	}
+
 	target.ID = uuid.New()
 	_, err := db.Exec(query, target.ID, target.Name, target.Address, target.Retries, target.MaxHops, target.TimeoutMs)
 	if err != nil {
