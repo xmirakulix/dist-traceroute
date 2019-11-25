@@ -17,6 +17,7 @@ import (
 // TODO don't accept results with loops
 
 // TODO GUI: refresh trace history together with status on home page
+// TODO GUI: properly validate target dest address
 
 // global logger
 var log = logrus.New()
