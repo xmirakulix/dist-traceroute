@@ -67,7 +67,7 @@ func GetSlave(slaveID uuid.UUID, db *DB) (Slave, error) {
 		return Slave{}, errors.New("Error while getting slave from DB")
 	}
 
-	log.Debug("GetSlave: Returning slave name '%v' for ID '%v'", slave.Name, slave.ID)
+	log.Debugf("GetSlave: Returning slave name '%v' for ID '%v'", slave.Name, slave.ID)
 	return slave, nil
 }
 
@@ -117,7 +117,7 @@ func CreateSlave(db *DB, slave Slave) (Slave, error) {
 
 // UpdateSlave updates an existing new slave in the db
 func UpdateSlave(db *DB, slave Slave) (Slave, error) {
-	log.Debug("UpdateSlave: Updating slave '%v'...", slave.ID)
+	log.Debugf("UpdateSlave: Updating slave '%v'...", slave.ID)
 
 	query := "UPDATE t_Slaves SET strSlaveName = ?, strSlaveSecret = ? WHERE strSlaveId = ?"
 

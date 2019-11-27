@@ -41,6 +41,7 @@
                 v-model="dialog"
                 max-width="500px"
                 @keydown.enter="save"
+                @keydown.esc="close"
                 @click:outside="close"
               >
                 <v-card>
@@ -66,7 +67,7 @@
                               v-model="editedItem.Secret"
                               label="Secret"
                               counter
-                              :rules="rulesPw"
+                              :rules="rulesSecret"
                               validate-on-blur
                             >
                               <v-icon
@@ -170,7 +171,7 @@ export default {
   data() {
     return {
       headers: [
-        { text: "ID", value: "ID" },
+        // { text: "ID", value: "ID" },
         { text: "Name", value: "Name" },
         { text: "Secret", value: "Secret" },
         { text: "", value: "action", sortable: false }
@@ -194,7 +195,7 @@ export default {
       },
 
       rulesName: [v => v.match(/[^A-Z0-9]/i) == null || "Invalid character"],
-      rulesPw: [v => v.length >= 6 || "Minimum length: 6 characters"],
+      rulesSecret: [v => v.length >= 6 || "Minimum length: 6 characters"],
 
       snack: false,
       snackText: "",

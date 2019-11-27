@@ -1,6 +1,7 @@
 package disttrace
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
@@ -15,9 +16,43 @@ import (
 type User struct {
 	ID                  uuid.UUID
 	Name                string
-	Password            string
+	Password            []byte
 	Salt                int
 	PasswordNeedsChange bool
+}
+
+// AuthUser checks supplied username/PW combination
+func AuthUser(name string, pwd string, db *DB) bool {
+
+	log.Debug("AuthUser: checking for user: ", name)
+	user := User{}
+
+	query := `
+		SELECT strUserId, strUserName, strPassword, nSalt, nPassNeedsChange FROM t_Users 
+		WHERE strUserName = ? 
+		`
+
+	row := db.QueryRow(query, name)
+	if err := row.Scan(&user.ID, &user.Name, &user.Password, &user.Salt, &user.PasswordNeedsChange); err != nil {
+		if err == sql.ErrNoRows {
+			log.Debug("AuthUser: Couldn't find specified user in DB...")
+			return false
+		}
+		log.Warn("AuthUser: Error while getting user from DB, Error: ", err)
+		return false
+	}
+
+	log.Debug("AuthUser: User found, checking password...")
+
+	pass := sha256.Sum256(append([]byte(pwd)[:], []byte(strconv.Itoa(user.Salt))[:]...))
+
+	if bytes.Compare(pass[:], user.Password) != 0 {
+		log.Warn("AuthUser: Passwords don't match!")
+		return false
+	}
+
+	log.Debug("AuthUser: Success")
+	return true
 }
 
 // GetUser returns the specified user from DB
@@ -38,7 +73,7 @@ func GetUser(userID uuid.UUID, db *DB) (User, error) {
 		return User{}, errors.New("Error while getting user from DB")
 	}
 
-	log.Debug("GetUser: Returning user name '%v' for ID '%v'", user.Name, user.ID)
+	log.Debugf("GetUser: Returning user name '%v' for ID '%v'", user.Name, user.ID)
 	return user, nil
 }
 
@@ -80,8 +115,8 @@ func CreateUser(db *DB, user User) (User, error) {
 
 	user.ID = uuid.New()
 	user.Salt = rand.Intn(math.MaxInt32)
-	password := sha256.Sum256([]byte(user.Password + strconv.Itoa(user.Salt)))
-	user.Password = string(password[:])
+	password := sha256.Sum256(append(user.Password[:], []byte(strconv.Itoa(user.Salt))[:]...))
+	user.Password = password[:]
 
 	_, err := db.Exec(query, user.ID, user.Name, user.Password, user.Salt, user.PasswordNeedsChange)
 	if err != nil {
@@ -95,7 +130,7 @@ func CreateUser(db *DB, user User) (User, error) {
 
 // UpdateUser updates an existing user in the db
 func UpdateUser(db *DB, user User) (User, error) {
-	log.Debug("UpdateUser: Updating user '%v'...", user.ID)
+	log.Debugf("UpdateUser: Updating user '%v'...", user.ID)
 
 	oldUser, err := GetUser(user.ID, db)
 	if err != nil {
@@ -103,18 +138,18 @@ func UpdateUser(db *DB, user User) (User, error) {
 		return User{}, errors.New("Couldn't get old userinfo from DB")
 	}
 
-	if oldUser.Password != user.Password {
+	if bytes.Compare(oldUser.Password, user.Password) != 0 {
 		log.Debug("UpdateUser: PW has changed, setting new hashed pw...")
 		user.Salt = rand.Intn(math.MaxInt32)
-		password := sha256.Sum256([]byte(user.Password + strconv.Itoa(user.Salt)))
-		user.Password = string(password[:])
+		password := sha256.Sum256(append(user.Password[:], []byte(strconv.Itoa(user.Salt))[:]...))
+		user.Password = password[:]
 	}
 
 	query := `UPDATE t_Users 
 	SET strUserName = ?, strPassword = ?, nSalt = ?, nPassNeedsChange = ?
 	WHERE strUserId = ?`
 
-	res, err := db.Exec(query, user.Name, user.Password, user.Password, user.PasswordNeedsChange)
+	res, err := db.Exec(query, user.Name, user.Password, user.Salt, user.PasswordNeedsChange, user.ID)
 	if err != nil {
 		log.Warn("UpdateUser: Couldn't update user, Error: ", err)
 		return User{}, errors.New("Couldn't update user")

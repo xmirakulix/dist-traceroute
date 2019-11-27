@@ -40,7 +40,7 @@ func httpHandleAPIAuth() http.HandlerFunc {
 
 		log.Debugf("httpHandleAPIAuth: Received API 'auth' request for user<%v>", user)
 
-		if user != "admin" || password != "123" {
+		if !disttrace.AuthUser(user, password, db) {
 			time.Sleep(3 * time.Second)
 			http.Error(writer, "User/PW do not match", http.StatusUnauthorized)
 			return
@@ -725,7 +725,7 @@ func httpHandleAPIUsersCreate() http.HandlerFunc {
 
 		user := disttrace.User{
 			Name:                name,
-			Password:            password,
+			Password:            []byte(password),
 			PasswordNeedsChange: pwNeedsChange,
 		}
 

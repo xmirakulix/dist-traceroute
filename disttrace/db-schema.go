@@ -1,15 +1,8 @@
 package disttrace
 
 import (
-	"crypto/sha256"
 	"database/sql"
 	"errors"
-	"fmt"
-	"math"
-	"math/rand"
-	"strconv"
-
-	"github.com/google/uuid"
 )
 
 // getSchemaVersion returns the current schema version of the database
@@ -70,8 +63,6 @@ func (db *DB) createAndUpdateDbSchema() error {
 		"INSERT INTO t_SchemaInfo VALUES (1)",
 	}
 
-	salt := rand.Intn(math.MaxInt32)
-
 	schemaUpdate[2] = []string{
 		`CREATE TABLE IF NOT EXISTS t_Traceroutes (
 			strTracerouteId TEXT PRIMARY KEY,
@@ -94,7 +85,7 @@ func (db *DB) createAndUpdateDbSchema() error {
 
 		`CREATE TABLE IF NOT EXISTS t_Targets (
 			strTargetId TEXT PRIMARY KEY,
-			strDescription TEXT, 
+			strDescription TEXT UNIQUE, 
 			strDestination TEXT NOT NULL,
 			nRetries INTEGER NOT NULL,
 			nMaxHops INTEGER NOT NULL,
@@ -103,7 +94,7 @@ func (db *DB) createAndUpdateDbSchema() error {
 
 		`CREATE TABLE IF NOT EXISTS t_Slaves (
 			strSlaveId TEXT PRIMARY KEY, 
-			strSlaveName TEXT NOT NULL,
+			strSlaveName TEXT NOT NULL UNIQUE,
 			strSlaveSecret TEXT NOT NULL 
 		)`,
 
@@ -114,16 +105,17 @@ func (db *DB) createAndUpdateDbSchema() error {
 
 		`CREATE TABLE IF NOT EXISTS t_Users (
 			strUserId TEXT PRIMARY KEY, 
-			strUserName TEXT NOT NULL,
+			strUserName TEXT NOT NULL UNIQUE,
 			strPassword TEXT NOT NULL,
 			nSalt INTEGER NOT NULL,
 			nPassNeedsChange INTEGER NOT NULL
 		)`,
 
-		// create admin:admin user
-		fmt.Sprintf(`INSERT INTO t_Users (strUserId, strUserName, strPassword, nSalt, nPassNeedsChange) 
-			VALUES ("%v", "admin", "%v", "%v", 1)`,
-			uuid.New(), sha256.Sum256([]byte("admin"+strconv.Itoa(salt))), salt),
+		// create admin:123 user
+		`INSERT INTO t_Users (strUserId, strUserName, strPassword, nSalt, nPassNeedsChange) 
+			VALUES ('998dd43d-86b1-44a3-8f28-d31cd2822927', 'admin', 
+			X'd68f3b8ca9aef9120b30823ea284c7bd001fc1beef4b3796fd609bc641031db8', 1298498081, 1); 
+		`,
 
 		`UPDATE t_SchemaInfo SET nVersion = 3`,
 	}

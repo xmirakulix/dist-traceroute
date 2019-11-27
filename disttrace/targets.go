@@ -35,7 +35,7 @@ func GetTarget(targetID uuid.UUID, db *DB) (TraceTarget, error) {
 		return TraceTarget{}, errors.New("Error while getting target from DB")
 	}
 
-	log.Debug("GetTarget: Returning target name '%v' for ID '%v'", target.Name, target.ID)
+	log.Debugf("GetTarget: Returning target name '%v' for ID '%v'", target.Name, target.ID)
 	return target, nil
 }
 
@@ -99,7 +99,7 @@ func CreateTarget(db *DB, target TraceTarget) (TraceTarget, error) {
 
 // UpdateTarget updates an existing new target in the db
 func UpdateTarget(db *DB, target TraceTarget) (TraceTarget, error) {
-	log.Debug("UpdateTarget: Updating target '%v'...", target.ID)
+	log.Debugf("UpdateTarget: Updating target '%v'...", target.ID)
 
 	query := `UPDATE t_Targets 
 	SET strDescription = ?, strDestination = ?, nRetries = ?, nMaxHops = ?, nTimeoutMSec = ?

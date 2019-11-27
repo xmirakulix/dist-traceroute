@@ -19,6 +19,7 @@
                       v-model="creds.user"
                       :error="failed"
                       :disabled="waiting"
+                      autofocus
                   /></v-col>
                 </v-row>
                 <v-row no-gutters>
