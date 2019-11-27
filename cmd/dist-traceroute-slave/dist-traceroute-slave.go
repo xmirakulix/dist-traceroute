@@ -229,7 +229,7 @@ func txResultsToMaster(buf chan disttrace.TraceResult, bufSize *int32, slave dis
 
 			if httpResp.StatusCode != 200 {
 				log.Warnf("txResultsToMaster: Received non-OK status '%v', response: %s", httpResp.Status, httpRespBody)
-				workErr = err
+				workErr = errors.New("Received non-OK status: " + httpResp.Status)
 				goto endWork
 			}
 
