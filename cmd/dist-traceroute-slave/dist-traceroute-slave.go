@@ -129,7 +129,7 @@ func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txB
 	uniqueIPs := make(map[[4]byte]bool)
 	for _, hop := range result.Hops {
 		if _, exists := uniqueIPs[hop.Address]; exists {
-			log.Infof("runMeasurement[%v]: Found duplicate hop '%v' (hop # '%v') in traceroute result, discarding result...", target.ID, hop.HostOrAddressString(), hop.TTL)
+			log.Infof("runMeasurement[%v]: Found duplicate hop '%v' for target '%v' (hop # '%v') in traceroute result, discarding result...", target.ID, hop.HostOrAddressString(), target.Name, hop.TTL)
 			log.Debugf("runMeasurement[%v]: List of all hops: %v", target.ID, result.Hops)
 			return
 		}
