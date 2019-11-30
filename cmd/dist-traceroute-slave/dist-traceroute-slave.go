@@ -125,6 +125,17 @@ func runMeasurement(target disttrace.TraceTarget, cfg disttrace.SlaveConfig, txB
 	result.Hops = res.Hops
 	result.HopCount = len(res.Hops)
 
+	// check for duplicates that would result in circular data
+	uniqueIPs := make(map[[4]byte]bool)
+	for _, hop := range result.Hops {
+		if _, exists := uniqueIPs[hop.Address]; exists {
+			log.Infof("runMeasurement[%v]: Found duplicate hop '%v' (hop # '%v') in traceroute result, discarding result...", hop.HostOrAddressString(), hop.TTL)
+			log.Debug("runMeasurement[%v]: List of all hops: ", result.Hops)
+			return
+		}
+		uniqueIPs[hop.Address] = true
+	}
+
 	select {
 	case txBuffer <- result:
 		queuesize := atomic.AddInt32(txBufferSize, 1)

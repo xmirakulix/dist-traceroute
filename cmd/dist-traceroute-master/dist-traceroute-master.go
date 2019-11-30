@@ -9,16 +9,16 @@ import (
 	"github.com/xmirakulix/dist-traceroute/disttrace"
 )
 
-// TODO log results to seperate log
-// TODO add option to post results to elastic
+// MAYBE log results to seperate log
+// MAYBE add option to post results to elastic
 // TODO https/TLS
-// TODO fix multiline traces when logging to logfile (e.g. cmdline arg usage)
 // TODO slave shutdown takes too long during measurements
-// TODO don't accept results with loops
 // TODO cleanup when deleting slaves or targets
+// TODO store failed traceroutes as well
 
-// TODO GUI: refresh trace history together with status on home page
-// TODO GUI: properly validate target dest address
+// TODO GUI refresh trace history together with status on home page
+// TODO GUI properly validate target dest address
+// TODI GUI display recent slave activity
 
 // global logger
 var log = logrus.New()
