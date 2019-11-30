@@ -91,6 +91,7 @@ func main() {
 
 	// wait here until told to quit by os signal
 	log.Info("Main: startup finished, going to sleep...")
+	disttrace.AlertInfof("master", "Startup complete...")
 	disttrace.WaitForOSSignalAndQuit()
 
 	// wait for graceful shutdown of HTTP server

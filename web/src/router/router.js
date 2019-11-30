@@ -31,6 +31,12 @@ const routes = [
       )
   },
   {
+    path: "/alerts",
+    name: "alerts",
+    component: () =>
+      import(/* webpackChunkName: "alerts" */ "@/views/AlertHistory.vue")
+  },
+  {
     path: "/history",
     name: "history",
     component: () =>

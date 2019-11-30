@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -26,6 +27,57 @@ var doExit = false
 
 // global logger
 var log = logrus.New()
+
+// contains ten most recent errors to display on web GUI
+var lastAlerts []AppAlert
+
+// AppAlert holds an application notification, e.g. errors
+type AppAlert struct {
+	Time     time.Time
+	Text     string
+	Source   string
+	Severity string
+}
+
+// alert creates a new alert to display on web GUI
+func alert(severity string, source string, text string, args ...interface{}) {
+
+	traceText := fmt.Sprintf(text, args...)
+
+	alert := AppAlert{
+		Time:     time.Now(),
+		Text:     traceText,
+		Source:   source,
+		Severity: severity,
+	}
+
+	lastAlerts = append(lastAlerts, alert)
+
+	// only store last 10 alerts
+	if len(lastAlerts) > 10 {
+		lastAlerts = lastAlerts[len(lastAlerts)-10:]
+	}
+}
+
+// AlertInfof creates a new alert on web GUI of 'info' severity
+func AlertInfof(source string, text string, args ...interface{}) {
+	alert("info", source, text, args...)
+}
+
+// AlertWarnf creates a new alert on web GUI of 'warn' severity
+func AlertWarnf(source string, text string, args ...interface{}) {
+	alert("warning", source, text, args...)
+}
+
+// AlertErrorf creates a new alert on web GUI of 'error' severity
+func AlertErrorf(source string, text string, args ...interface{}) {
+	alert("error", source, text, args...)
+}
+
+// GetAlerts returns the last alerts
+func GetAlerts() []AppAlert {
+	return lastAlerts
+}
 
 // GetUptime returns the application's uptime since launch
 func GetUptime() time.Duration {

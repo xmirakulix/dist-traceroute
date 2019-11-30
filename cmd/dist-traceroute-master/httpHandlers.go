@@ -28,6 +28,7 @@ func checkSlaveCredentials(slave *disttrace.Slave, writer http.ResponseWriter, r
 
 	// no match found, unauthorized!
 	log.Warnf("checkCredentials: Unauthorized slave '%v', peer: %v", slave.Name, req.RemoteAddr)
+	disttrace.AlertWarnf(req.RemoteAddr, "Unauthorized access to '%v' by slave: '%v'", req.URL, slave.Name)
 	time.Sleep(2 * time.Second)
 	http.Error(writer, "Unauthorized", http.StatusUnauthorized)
 	return false, uuid.Nil
@@ -43,6 +44,7 @@ func httpHandleAPIAuth() http.HandlerFunc {
 		if !disttrace.AuthUser(user, password, db) {
 			time.Sleep(3 * time.Second)
 			http.Error(writer, "User/PW do not match", http.StatusUnauthorized)
+			disttrace.AlertWarnf(req.RemoteAddr, "Unauthorized user login for user '%v'", user)
 			return
 		}
 
@@ -78,10 +80,12 @@ func httpHandleAPIStatus() http.HandlerFunc {
 			Uptime              string
 			LastSlaveConfigTime string
 			LastSlaveConfig     string
+			LastAlerts          []disttrace.AppAlert
 		}{
 			disttrace.GetUptime().Truncate(time.Second).String(),
 			timeSinceSlaveCfg,
 			lastTransmittedSlaveConfig,
+			disttrace.GetAlerts(),
 		}
 
 		generateJSONResponse(writer, req, response)
@@ -261,6 +265,7 @@ func httpHandleSlaveResults() http.HandlerFunc {
 		} else if target.ID == uuid.Nil {
 			log.Debug("httpHandleSlaveResults: Bogus result, Supplied target ID doesn't match a target in the DB, returning BadRequest")
 			http.Error(writer, "Supplied target ID doesn't match a target in the DB", http.StatusBadRequest)
+			disttrace.AlertInfof("Slave: "+result.Slave.Name, "Discarding result for invalid target ID: '%v'", result.Target.ID)
 			return
 		}
 
@@ -498,12 +503,6 @@ func handleAccessControl(writer http.ResponseWriter, req *http.Request, next htt
 
 	// call next handler in chain
 	next(writer, req)
-}
-
-func httpHandleAPIUsers() http.HandlerFunc {
-	return func(writer http.ResponseWriter, req *http.Request) {
-		log.Debug("httpHandleAPIUsers: Received API 'users' request")
-	}
 }
 
 func httpHandleAPISlavesList() http.HandlerFunc {

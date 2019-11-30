@@ -15,11 +15,8 @@
     <!-- List last received traces -->
     <ListTraces />
 
-    <!-- current master config -->
-    <h2 class="mt-6">Currently loaded master config</h2>
-    <v-container>
-      <code class="d-block">{{ getStatus.CurrentMasterConfig }}</code>
-    </v-container>
+    <!-- recent alerts -->
+    <ListAlerts />
 
     <!-- last slave action -->
     <h2 class="mt-6">Last transmitted slave config</h2>
@@ -40,10 +37,11 @@
 <script>
 import { mapGetters, mapActions } from "vuex";
 import ListTraces from "@/components/ListTraces.vue";
+import ListAlerts from "@/components/ListAlerts.vue";
 
 export default {
   name: "home",
-  components: { ListTraces },
+  components: { ListTraces, ListAlerts },
   computed: mapGetters(["getStatus"]),
 
   methods: mapActions(["fetchStatus"]),

@@ -34,7 +34,7 @@
             "
           >
             <v-list-item-action>
-              <v-icon>{{ item.icon }}</v-icon>
+              <v-icon> {{ item.icon }}</v-icon>
             </v-list-item-action>
             <v-list-item-title>{{ item.text }}</v-list-item-title>
           </v-list-item>
@@ -106,7 +106,9 @@ export default {
           icon: "fas fa-map-marker-alt",
           text: "Targets",
           to: "/config/targets"
-        }
+        },
+        { divider: true },
+        { icon: "fas fa-exclamation-triangle", text: "Alerts", to: "/alerts" }
       ]
     };
   },
